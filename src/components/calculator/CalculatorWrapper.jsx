@@ -31,7 +31,9 @@ export default function CalculatorWrapper({
   result,
   onReset,
   showPatientInfo = true,
-  printOnly = false
+  printOnly = false,
+  requestRecordLocation = false,
+  onRecordResult,
 }) {
   const [patientInfo, setPatientInfo] = useState({
     name: '',
@@ -74,9 +76,15 @@ export default function CalculatorWrapper({
   };
 
   const handleCalculateWithHistory = () => {
+    if (needsPatient && !patientValid) {
+      setPrintError('Para registro clínico es obligatorio anotar nombre y RUT del paciente.');
+      return;
+    }
+    setPrintError('');
     const calcResult = onCalculate();
     if (calcResult) {
       saveToHistory({ inputs, result: calcResult });
+      if (needsPatient && onRecordResult) onRecordResult({ inputs, result: calcResult, patientInfo });
     }
   };
 
@@ -169,32 +177,34 @@ export default function CalculatorWrapper({
                 className="mt-1"
               />
             </div>
-            <div>
-              <Label className="text-xs">Servicio</Label>
-              <input
-                value={patientInfo.servicio}
-                onChange={(e) => setPatientInfo({...patientInfo, servicio: e.target.value})}
-                list="calc-servicio-suggestions"
-                placeholder="MQ1, MQ2, Pediatría, Urgencia…"
-                className="mt-1 w-full h-9 rounded-md border border-slate-200 px-3 text-sm focus:border-blue-400 focus:outline-none"
-              />
-              <datalist id="calc-servicio-suggestions">
-                {SERVICIOS.map(s => <option key={s} value={s} />)}
-              </datalist>
-            </div>
-            <div>
-              <Label className="text-xs">Cama</Label>
-              <input
-                value={patientInfo.cama}
-                onChange={(e) => setPatientInfo({...patientInfo, cama: e.target.value})}
-                list="calc-cama-suggestions"
-                placeholder="1-1, 2-3, Aisl 5-1..."
-                className="mt-1 w-full h-9 rounded-md border border-slate-200 px-3 text-sm focus:border-blue-400 focus:outline-none"
-              />
-              <datalist id="calc-cama-suggestions">
-                {CAMAS.map(s => <option key={s} value={s} />)}
-              </datalist>
-            </div>
+            {!requestRecordLocation && <>
+              <div>
+                <Label className="text-xs">Servicio</Label>
+                <input
+                  value={patientInfo.servicio}
+                  onChange={(e) => setPatientInfo({...patientInfo, servicio: e.target.value})}
+                  list="calc-servicio-suggestions"
+                  placeholder="MQ1, MQ2, Pediatría, Urgencia…"
+                  className="mt-1 w-full h-9 rounded-md border border-slate-200 px-3 text-sm focus:border-blue-400 focus:outline-none"
+                />
+                <datalist id="calc-servicio-suggestions">
+                  {SERVICIOS.map(s => <option key={s} value={s} />)}
+                </datalist>
+              </div>
+              <div>
+                <Label className="text-xs">Cama</Label>
+                <input
+                  value={patientInfo.cama}
+                  onChange={(e) => setPatientInfo({...patientInfo, cama: e.target.value})}
+                  list="calc-cama-suggestions"
+                  placeholder="1-1, 2-3, Aisl 5-1..."
+                  className="mt-1 w-full h-9 rounded-md border border-slate-200 px-3 text-sm focus:border-blue-400 focus:outline-none"
+                />
+                <datalist id="calc-cama-suggestions">
+                  {CAMAS.map(s => <option key={s} value={s} />)}
+                </datalist>
+              </div>
+            </>}
           </div>
           {printError && (
             <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1.5">
@@ -210,13 +220,18 @@ export default function CalculatorWrapper({
       {/* Actions */}
       <div className="flex gap-3 mt-6">
         {!(printOnly && result) && (
-          <Button onClick={handleCalculateWithHistory} className="flex-1">
+          <Button onClick={handleCalculateWithHistory} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Calcular'} className="flex-1">
             <Calculator className="h-4 w-4 mr-2" />
             Calcular
           </Button>
         )}
         {result && (
           <>
+            {printOnly && needsPatient && onRecordResult && (
+              <Button type="button" onClick={() => onRecordResult({ inputs, result, patientInfo })} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Guardar en registro hospitalario'} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
+                Guardar en registro
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={handlePrint}

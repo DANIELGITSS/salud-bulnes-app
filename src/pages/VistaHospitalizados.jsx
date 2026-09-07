@@ -8,6 +8,7 @@ import { ALL_BEDS } from '@/components/agenda-diaria/bedCatalog';
 import { setMultiPrefill } from '@/lib/multiTemplatePrefill';
 import { archiveProaRecord, fetchProaRecords, getLatestProaForm, isHistoricalProaRecord, isProaEnrolledRecord, saveProaPreAdmission, saveProaRecord } from '@/lib/proaRegistry';
 import { buildRenalFunctionText } from '@/lib/renalFunction';
+import { HOSPITAL_REGISTRY_UPDATED_EVENT } from '@/lib/hospitalNrsRegistry';
 import { createPageUrl } from '@/utils';
 import { ANTIBIOTICOS, DEFAULT_DOSIS_ATB, PRESENTACIONES_ATB, TIPOS_MUESTRA } from '@/pages/VisitaPROA';
 import { allCalculators, calculatorReferences } from '@/components/calculators/catalog';
@@ -175,6 +176,34 @@ function writeEvolutionDraft(bedCode, kind, payload) {
   localStorage.setItem(EVOLUTION_DRAFTS_KEY, JSON.stringify(all));
 }
 
+function evolutionDraftHistoryEntries(bedCode) {
+  const drafts = readEvolutionDrafts()[bedCode] || {};
+  return Object.entries(drafts).map(([kind, payload]) => {
+    const changed = payload?.changed || {};
+    const clinicalStatus = payload?.clinicalStatusDraft || {};
+    const snapshot = kind === 'estadoClinico'
+      ? { ...clinicalStatus, ultimaEvolucion: payload?.evolutionDraft || '' }
+      : { ...changed, diagnostico: payload?.diagnosisAndHistoryDraft || changed.diagnostico || '' };
+    return {
+      id: `draft-${kind}`,
+      kind,
+      savedAt: payload?.savedAt || '',
+      label: kind === 'estadoClinico' ? 'Estado clínico actual' : 'Actualización clínica',
+      snapshot,
+    };
+  }).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+}
+
+function draftHistorySummary(entry) {
+  const snapshot = entry?.snapshot || {};
+  return snapshot.ultimaEvolucion
+    || snapshot.resumenCaso
+    || snapshot.diagnosticoPrincipal
+    || snapshot.diagnostico
+    || snapshot.planesPendientes
+    || 'Borrador con cambios pendientes de guardar.';
+}
+
 function formatRut(value) {
   const clean = String(value || '').replace(/[^0-9kK]/g, '').toUpperCase();
   if (!clean) return '';
@@ -262,6 +291,40 @@ function ExpandIconButton({ icon: Icon, label, title, className = '', children, 
     <span className="max-w-0 overflow-hidden whitespace-nowrap text-xs font-bold opacity-0 transition-all duration-300 group-hover:ml-1.5 group-hover:max-w-48 group-hover:opacity-100 group-focus-visible:ml-1.5 group-focus-visible:max-w-48 group-focus-visible:opacity-100">{label}</span>
     {children}
   </Button>;
+}
+
+function EvolutionHistoryFilters({ value, onChange, savedCount, draftCount }) {
+  const options = [
+    { value: 'all', label: 'Todas', count: savedCount + draftCount },
+    { value: 'drafts', label: 'Borradores', count: draftCount },
+    { value: 'saved', label: 'Guardadas', count: savedCount },
+  ];
+  return <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white p-1" role="group" aria-label="Filtrar evoluciones">
+    {options.map(option => <button key={option.value} type="button" onClick={() => onChange(option.value)} aria-pressed={value === option.value} className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${value === option.value ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}>
+      {option.label}<span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${value === option.value ? 'bg-white/20 text-white' : option.value === 'drafts' && option.count ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}>{option.count}</span>
+    </button>)}
+  </div>;
+}
+
+function DraftEvolutionCard({ entry, onEdit, onDelete, expanded = false }) {
+  const summary = draftHistorySummary(entry);
+  return <div className="relative min-w-0 rounded-lg border border-amber-300 bg-amber-50/80 p-3 shadow-sm">
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-black text-slate-900">{entry.savedAt ? new Date(entry.savedAt).toLocaleString('es-CL') : 'Fecha no consignada'}</p>
+          <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">Borrador</span>
+          <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">{entry.label}</span>
+        </div>
+        <p className={`${expanded ? 'whitespace-pre-wrap' : 'line-clamp-2'} mt-1 break-words text-xs text-slate-600`}>{summary}</p>
+        <p className="mt-1 text-[10px] font-semibold text-amber-800">Pendiente de guardar como registro clínico definitivo.</p>
+      </div>
+      <div className="flex shrink-0 gap-1">
+        <Button type="button" size="sm" variant="outline" title="Continuar editando borrador" onClick={() => onEdit(entry.kind)} className="h-8 gap-1 border-amber-300 bg-white px-2 text-xs font-bold text-amber-900 hover:bg-amber-100"><Pencil className="h-3.5 w-3.5" />Continuar</Button>
+        <Button type="button" size="icon" variant="ghost" title="Descartar borrador" aria-label={`Descartar borrador de ${entry.label}`} onClick={() => onDelete(entry.kind)} className="h-8 w-8 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></Button>
+      </div>
+    </div>
+  </div>;
 }
 
 const SNAPSHOT_FIELDS = ['diagnosticoPrincipal', 'diagnostico', 'antecedentes', 'resumenCaso', 'ultimaEvolucion', 'signosVitales', 'oxigenoterapiaTipo', 'oxigenoterapiaCantidad', 'drogasVasoactivas', 'soporteClinico', 'planProa', 'planesPendientes', 'planesAmbitos', 'planAlta', 'estudiosComplementarios', 'antibioterapia', 'patogenoAislado', 'ultimoLaboratorio', 'letIndicacion', 'iotIndicacion', 'rcpIndicacion', 'observaciones'];
@@ -864,6 +927,8 @@ function VistaHospitalizados() {
   const [careDocumentOpen, setCareDocumentOpen] = useState(false);
   const [medicalReportsOpen, setMedicalReportsOpen] = useState(false);
   const [documentArchiveOpen, setDocumentArchiveOpen] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState('all');
+  const [draftHistoryRevision, setDraftHistoryRevision] = useState(0);
   const [labWorkspaceTab, setLabWorkspaceTab] = useState('registro');
   const [labCurveLoading, setLabCurveLoading] = useState(false);
   const [labCurveRows, setLabCurveRows] = useState([]);
@@ -916,6 +981,18 @@ function VistaHospitalizados() {
   const [labRows, setLabRows] = useState(() => [emptyLabRow()]);
 
   useEffect(() => { sessionStorage.removeItem(RETURN_TO_BED_KEY); }, []);
+
+  useEffect(() => {
+    const refreshHospitalRegistry = event => {
+      const nextRegistry = readRegistry();
+      setRegistry(nextRegistry);
+      if (selectedCode && (!event?.detail?.bedCode || event.detail.bedCode === selectedCode)) {
+        setDraft({ ...EMPTY, ...(nextRegistry[selectedCode] || {}) });
+      }
+    };
+    window.addEventListener(HOSPITAL_REGISTRY_UPDATED_EVENT, refreshHospitalRegistry);
+    return () => window.removeEventListener(HOSPITAL_REGISTRY_UPDATED_EVENT, refreshHospitalRegistry);
+  }, [selectedCode]);
 
   useEffect(() => {
     if (!selectedCode) return;
@@ -980,6 +1057,11 @@ function VistaHospitalizados() {
     setService(services[(currentIndex + direction + services.length) % services.length]);
   };
   const selectedBed = displayBeds.find(b => b.code === selectedCode);
+  const savedEvolutionHistory = Array.isArray(draft.historialActualizaciones) ? draft.historialActualizaciones : [];
+  const evolutionHistoryDrafts = useMemo(() => evolutionDraftHistoryEntries(selectedCode), [selectedCode, draftHistoryRevision]);
+  const totalEvolutionHistory = savedEvolutionHistory.length + evolutionHistoryDrafts.length;
+  const showSavedEvolutionHistory = historyFilter === 'all' || historyFilter === 'saved';
+  const showDraftEvolutionHistory = historyFilter === 'all' || historyFilter === 'drafts';
   const latestEvolutionMeta = useMemo(() => latestFieldMetadata(draft.historialActualizaciones, 'ultimaEvolucion', draft.ultimaEvolucion), [draft.historialActualizaciones, draft.ultimaEvolucion]);
   const clinicalStateStatus = useMemo(() => clinicalStateIndicator(draft, latestEvolutionMeta), [draft, latestEvolutionMeta]);
   const latestPlanMeta = useMemo(() => latestFieldMetadata(draft.historialActualizaciones, 'planesPendientes', draft.planesPendientes), [draft.historialActualizaciones, draft.planesPendientes]);
@@ -1133,7 +1215,7 @@ function VistaHospitalizados() {
     setGeneralDraftRestored(Boolean(stored));
     setFullGeneralOpen(true);
   };
-  const discardGeneralDraft = () => { writeEvolutionDraft(selectedCode, 'actualizacionClinica', null); setGeneralDraft(generalSeed()); setDiagnosisAndHistoryDraft(combinedDiagnosisAndHistory(draft)); setGeneralDraftRestored(false); };
+  const discardGeneralDraft = () => { writeEvolutionDraft(selectedCode, 'actualizacionClinica', null); setDraftHistoryRevision(value => value + 1); setGeneralDraft(generalSeed()); setDiagnosisAndHistoryDraft(combinedDiagnosisAndHistory(draft)); setGeneralDraftRestored(false); };
   const closeGeneralAsDraft = () => {
     if (editingHistoryIndex == null) {
       const seed = generalSeed();
@@ -1142,6 +1224,7 @@ function VistaHospitalizados() {
       const combined = combinedDiagnosisAndHistory(draft);
       const changedDiagnosis = diagnosisAndHistoryDraft !== combined ? diagnosisAndHistoryDraft : null;
       writeEvolutionDraft(selectedCode, 'actualizacionClinica', Object.keys(changed).length || changedDiagnosis ? { changed, diagnosisAndHistoryDraft: changedDiagnosis, savedAt: new Date().toISOString() } : null);
+      setDraftHistoryRevision(value => value + 1);
     }
     setEditingHistoryIndex(null); setFullGeneralOpen(false);
   };
@@ -1171,6 +1254,7 @@ function VistaHospitalizados() {
       await saveProaRecord({ ...latest, paciente: savedDraft.nombre, rut: savedDraft.rut, edad: savedDraft.edad, sexo: savedDraft.sexo, direccion: savedDraft.direccion, comuna: savedDraft.comuna, fecha_ingreso: savedDraft.fechaIngreso, antecedentes: savedDraft.antecedentes, diagnostico_principal: savedDraft.diagnosticoPrincipal, diagnostico_desglose: savedDraft.diagnostico, diagnosticos_actuales: diagnoses, diagnostico_actual: diagnoses.join('; '), resumen_caso: savedDraft.resumenCaso, evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion_actualizada_en: savedDraft.ultimaEvolucionActualizadaEn || '', antibioticos: savedDraft.antibioticos, antibioterapia_preingreso: savedDraft.antibioterapia, aislamiento: savedDraft.aislamiento, diagnostico_microbiologico: savedDraft.patogenoAislado, estudios_imagen: savedDraft.estudiosComplementarios, plan_duracion: savedDraft.planProa, vista_planes_ambitos: savedDraft.planesAmbitos, vista_planes_pendientes: savedDraft.planesPendientes, vista_plan_alta: savedDraft.planAlta, vista_observaciones: savedDraft.observaciones, let_indicacion: savedDraft.letIndicacion, iot_indicacion: savedDraft.iotIndicacion, rcp_indicacion: savedDraft.rcpIndicacion, fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_clinica_vista_general' });
     }
     writeEvolutionDraft(selectedCode, 'actualizacionClinica', null);
+    setDraftHistoryRevision(value => value + 1);
     setEditingHistoryIndex(null); setGeneralOpen(false); setFullGeneralOpen(false); setSaved(true);
   };
   const savePlans = async () => {
@@ -1257,9 +1341,21 @@ function VistaHospitalizados() {
       || clinicalStatusDraft.drogasVasoactivas !== (draft.drogasVasoactivas || '')
       || clinicalStatusDraft.soporteClinico !== (draft.soporteClinico || '');
     writeEvolutionDraft(selectedCode, 'estadoClinico', differsFromSaved ? { evolutionDraft, clinicalStatusDraft, clinicalSupportVisible, savedAt: new Date().toISOString() } : null);
+    setDraftHistoryRevision(value => value + 1);
     setEvolutionOpen(false);
   };
-  const discardEvolutionDraft = () => { writeEvolutionDraft(selectedCode, 'estadoClinico', null); seedEvolutionFromRecord(); };
+  const discardEvolutionDraft = () => { writeEvolutionDraft(selectedCode, 'estadoClinico', null); setDraftHistoryRevision(value => value + 1); seedEvolutionFromRecord(); };
+  const continueEvolutionHistoryDraft = kind => {
+    setDocumentArchiveOpen(false);
+    if (kind === 'estadoClinico') openLatestEvolution();
+    else openGeneral();
+  };
+  const discardEvolutionHistoryDraft = kind => {
+    const label = kind === 'estadoClinico' ? 'estado clínico actual' : 'actualización clínica';
+    if (!window.confirm(`¿Descartar el borrador de ${label}? Esta acción no elimina registros clínicos guardados.`)) return;
+    writeEvolutionDraft(selectedCode, kind, null);
+    setDraftHistoryRevision(value => value + 1);
+  };
   const openClinicalSummary = () => { setSummaryDraft(draft.resumenCaso || ''); setSummaryOpen(true); };
   const saveClinicalSummary = () => {
     const savedDraft = withHistorySnapshot({ ...draft, resumenCaso: summaryDraft, updatedAt: new Date().toISOString() });
@@ -1273,6 +1369,7 @@ function VistaHospitalizados() {
     const next = { ...registry, [selectedCode]: savedDraft };
     setDraft(savedDraft); setRegistry(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     writeEvolutionDraft(selectedCode, 'estadoClinico', null);
+    setDraftHistoryRevision(value => value + 1);
     setEvolutionOpen(false); setSaved(true);
   };
   const saveScale = () => {
@@ -1725,8 +1822,11 @@ function VistaHospitalizados() {
             </div>
             <section className={`${patientViewTab === 'proa' ? 'block' : 'hidden'} rounded-xl border border-emerald-200 bg-emerald-50/60 p-4`}><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-emerald-950">Información PROA</h3><p className="text-xs text-emerald-700">Antibioterapia, aislamiento, cultivos y planes del equipo PROA.</p></div><Button type="button" variant="outline" onClick={openProaChecked} className="gap-2 border-emerald-300 bg-white text-emerald-800"><ShieldCheck className="h-4 w-4" />Editar en PROA</Button></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-emerald-100 bg-white p-3 md:col-span-2"><p className="text-xs font-black uppercase text-emerald-800">Antibioterapia</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{draft.antibioterapia || 'Sin antibioterapia registrada'}</p></div><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs font-black uppercase text-emerald-800">Aislamiento / precauciones</p><p className="mt-1 text-sm text-slate-700">{draft.aislamiento || 'No consignado'}</p></div><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs font-black uppercase text-emerald-800">Patógenos / cultivos</p><p className="mt-1 text-sm text-slate-700">{draft.patogenoAislado || 'Sin aislamiento microbiológico'}</p></div><div className="rounded-lg border border-teal-200 bg-teal-50 p-3 md:col-span-2"><p className="text-xs font-black uppercase text-teal-800">Plan PROA</p><p className="mt-1 whitespace-pre-wrap text-sm font-medium text-teal-950">{draft.planesPendientes || 'Sin plan PROA registrado'}</p></div></div></section>
             <div className={`${patientViewTab === 'evolutions' ? 'block' : 'hidden'} mt-5 rounded-xl border border-teal-200 bg-teal-50/60 p-4`}>
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-black text-teal-950">Historia de evoluciones</h3><p className="text-xs text-teal-700">Registros clínicos fechados, disponibles para consulta e impresión.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setDocumentArchiveOpen(true)} className="gap-1 border-teal-300 bg-white text-teal-800 hover:bg-teal-50"><Printer className="h-3.5 w-3.5" />Abrir historia ({(draft.historialActualizaciones || []).length})</Button></div>
-              <div className="mt-3 space-y-2">{(draft.historialActualizaciones || []).map((snapshot, index) => { const savedAt = snapshot.guardadoEn || snapshot.createdAt || snapshot.updatedAt || snapshot.fecha; const documentLabel = historyDocumentLabel(snapshot); return <div key={snapshot.id || `${savedAt}-${index}`} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-100 bg-white p-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-black text-slate-900">{savedAt ? new Date(savedAt).toLocaleString('es-CL') : 'Fecha no consignada'}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${documentLabel === 'PROA' ? 'bg-emerald-100 text-emerald-800' : documentLabel === 'Estado clínico actual' ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'}`}>{documentLabel}</span></div><p className="line-clamp-2 break-words text-xs text-slate-500">{snapshot.ultimaEvolucion || snapshot.resumenCaso || snapshot.diagnostico || 'Evolución clínica'}</p></div><div className="flex shrink-0 gap-1"><Button type="button" size="icon" variant="ghost" title="Editar" onClick={() => editHospitalHistory(index)} className="text-teal-700"><Pencil className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" title={`Imprimir ${documentLabel}`} onClick={() => printHospitalSnapshot(snapshot, draft, selectedBed)} className="text-indigo-700"><Printer className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" title="Borrar" onClick={() => deleteHospitalHistory(index)} className="text-red-600"><Trash2 className="h-4 w-4" /></Button></div></div>; })}{!(draft.historialActualizaciones || []).length && <p className="rounded-lg border border-dashed border-teal-200 bg-white p-4 text-sm text-slate-500">Sin evoluciones almacenadas.</p>}</div>
+              <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-sm font-black text-teal-950">Historia de evoluciones</h3><p className="text-xs text-teal-700">Registros guardados y borradores pendientes, claramente diferenciados.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setDocumentArchiveOpen(true)} className="gap-1 border-teal-300 bg-white text-teal-800 hover:bg-teal-50"><Printer className="h-3.5 w-3.5" />Abrir historia ({totalEvolutionHistory})</Button></div>
+              <div className="mt-3"><EvolutionHistoryFilters value={historyFilter} onChange={setHistoryFilter} savedCount={savedEvolutionHistory.length} draftCount={evolutionHistoryDrafts.length} /></div>
+              {showDraftEvolutionHistory && <div className="mt-3 space-y-2">{evolutionHistoryDrafts.map(entry => <DraftEvolutionCard key={entry.id} entry={entry} onEdit={continueEvolutionHistoryDraft} onDelete={discardEvolutionHistoryDraft} />)}{historyFilter === 'drafts' && !evolutionHistoryDrafts.length && <p className="rounded-lg border border-dashed border-amber-200 bg-amber-50/50 p-4 text-sm text-amber-800">No hay borradores pendientes.</p>}</div>}
+              <div className={`${showSavedEvolutionHistory ? 'mt-3 space-y-2' : 'hidden'}`}>{savedEvolutionHistory.map((snapshot, index) => { const savedAt = snapshot.guardadoEn || snapshot.createdAt || snapshot.updatedAt || snapshot.fecha; const documentLabel = historyDocumentLabel(snapshot); return <div key={snapshot.id || `${savedAt}-${index}`} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-teal-100 bg-white p-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-black text-slate-900">{savedAt ? new Date(savedAt).toLocaleString('es-CL') : 'Fecha no consignada'}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${documentLabel === 'PROA' ? 'bg-emerald-100 text-emerald-800' : documentLabel === 'Estado clínico actual' ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'}`}>{documentLabel}</span></div><p className="line-clamp-2 break-words text-xs text-slate-500">{snapshot.ultimaEvolucion || snapshot.resumenCaso || snapshot.diagnostico || 'Evolución clínica'}</p></div><div className="flex shrink-0 gap-1"><Button type="button" size="icon" variant="ghost" title="Editar" onClick={() => editHospitalHistory(index)} className="text-teal-700"><Pencil className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" title={`Imprimir ${documentLabel}`} onClick={() => printHospitalSnapshot(snapshot, draft, selectedBed)} className="text-indigo-700"><Printer className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" title="Borrar" onClick={() => deleteHospitalHistory(index)} className="text-red-600"><Trash2 className="h-4 w-4" /></Button></div></div>; })}{historyFilter === 'saved' && !savedEvolutionHistory.length && <p className="rounded-lg border border-dashed border-teal-200 bg-white p-4 text-sm text-slate-500">Sin evoluciones guardadas.</p>}</div>
+              {historyFilter === 'all' && !totalEvolutionHistory && <p className="mt-3 rounded-lg border border-dashed border-teal-200 bg-white p-4 text-sm text-slate-500">Sin evoluciones ni borradores.</p>}
             </div>
             </>}
           </section>
