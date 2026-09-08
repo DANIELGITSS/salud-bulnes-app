@@ -13,6 +13,8 @@ import {
   FlaskConical,
   HeartPulse,
   Info,
+  MinusCircle,
+  PauseCircle,
   PlayCircle,
   RefreshCw,
   Send,
@@ -156,7 +158,7 @@ function buildConduct(ctx) {
   const pending = {
     tone: 'info',
     headline: '',
-    aumentar: '—',
+    aumentar: { answer: '—', decision: 'espera', title: 'Sin datos suficientes', stage: null, note: '' },
     proximoControl: '—',
     actividad: '—',
     derivar: [],
@@ -172,7 +174,13 @@ function buildConduct(ctx) {
       return {
         tone: 'warn',
         headline: 'No es candidato al algoritmo HEARTS. Ingresa igual a PSCV o ECICEP por su HTA confirmada, con tratamiento individualizado.',
-        aumentar: 'No aplica la escalera HEARTS — el médico define el esquema',
+        aumentar: {
+          answer: 'No aplica',
+          decision: 'espera',
+          title: 'La escalera HEARTS no se usa en este paciente',
+          stage: null,
+          note: 'El médico define el esquema individualizado en el PSCV.',
+        },
         proximoControl: 'Según indicación médica del PSCV',
         actividad: 'Consulta médica de ingreso a PSCV o ECICEP',
         derivar: [
@@ -191,7 +199,13 @@ function buildConduct(ctx) {
       headline: faltantes.length
         ? `Candidato a HEARTS: iniciar etapa 1. Queda pendiente ${faltantes.join(' y ')}.`
         : 'Candidato a HEARTS: iniciar etapa 1 con receta separada de la receta crónica.',
-      aumentar: 'Iniciar etapa 1 — losartán 50 mg + amlodipino 5 mg al día',
+      aumentar: {
+        answer: 'Iniciar',
+        decision: 'iniciar',
+        title: 'Etapa 1 · Inicio',
+        stage: STAGES[0],
+        note: 'Receta HEARTS separada de la receta crónica.',
+      },
       proximoControl: '2–4 semanas — control de PA con TENS capacitado',
       actividad: 'Ingreso cardiovascular + activación HEARTS en el formulario CV integral',
       derivar: [
@@ -214,7 +228,13 @@ function buildConduct(ctx) {
     return {
       tone: 'danger',
       headline: `Control ${controlNumber} — PA ${paLabel} con adherencia baja (Morisky <6): corregir adherencia antes de subir la dosis.`,
-      aumentar: `No — mantener etapa ${stage.number} hasta reevaluar adherencia`,
+      aumentar: {
+        answer: 'Todavía no',
+        decision: 'espera',
+        title: `Mantener etapa ${stage.number} · ${stage.label}`,
+        stage,
+        note: 'Corregir la adherencia antes de subir la dosis.',
+      },
       proximoControl: '2–4 semanas — PA con TENS',
       actividad: 'Control cardiovascular HEARTS por TENS + consulta de químico farmacéutico',
       derivar: [{ to: 'Químico farmacéutico', detail: 'evaluación de adherencia y educación farmacoterapéutica' }],
@@ -228,7 +248,13 @@ function buildConduct(ctx) {
       return {
         tone: 'ok',
         headline: `Control ${controlNumber} — PA ${paLabel} en meta con 4 controles cumplidos: cerrar la ruta HEARTS compensado.${logroPost}`,
-        aumentar: `No — mantener etapa ${stage.number} como esquema de continuidad`,
+        aumentar: {
+          answer: 'No',
+          decision: 'mantener',
+          title: `Mantener etapa ${stage.number} · ${stage.label}`,
+          stage,
+          note: 'Queda como esquema de continuidad al cerrar la ruta.',
+        },
         proximoControl: 'Control habitual del PSCV (propuesta Bulnes: cierre a 8 semanas)',
         actividad: 'Control HEARTS de cierre + reingreso al calendario habitual del PSCV',
         derivar: [{ to: 'Continuidad en PSCV o ECICEP', detail: 'según calendario del programa' }],
@@ -238,7 +264,13 @@ function buildConduct(ctx) {
     return {
       tone: 'ok',
       headline: `Control ${controlNumber} — PA ${paLabel} en meta: mantener etapa ${stage.number} y completar los 4 controles.${logroPost}`,
-      aumentar: `No — mantener etapa ${stage.number}`,
+      aumentar: {
+        answer: 'No',
+        decision: 'mantener',
+        title: `Mantener etapa ${stage.number} · ${stage.label}`,
+        stage,
+        note: 'Continuar sin cambios hasta completar los 4 controles.',
+      },
       proximoControl: `2–4 semanas — control ${controlNumber + 1} con TENS`,
       actividad: 'Control cardiovascular HEARTS por TENS capacitado',
       derivar: midAdherence
@@ -253,7 +285,13 @@ function buildConduct(ctx) {
     return {
       tone: 'warn',
       headline: `Control ${controlNumber} — PA ${paLabel} fuera de meta: intensificar a etapa ${next.number}.`,
-      aumentar: `Sí — etapa ${next.number}: ${next.medicines.map(m => `${m.name} ${m.dose}`).join(' + ')}`,
+      aumentar: {
+        answer: 'Sí',
+        decision: 'subir',
+        title: `Subir a etapa ${next.number} · ${next.label}`,
+        stage: next,
+        note: 'La indica el profesional autorizado: médico, enfermera/o o químico farmacéutico.',
+      },
       proximoControl: next.number === 4
         ? '2–4 semanas con TENS (propuesta Bulnes: 4–6 semanas al pasar a etapa 4)'
         : '2–4 semanas — PA con TENS',
@@ -271,7 +309,13 @@ function buildConduct(ctx) {
   return {
     tone: 'danger',
     headline: `Control ${controlNumber} — PA ${paLabel} fuera de meta en etapa 4: derivar a poli de descompensados.`,
-    aumentar: 'No — la escalera HEARTS termina en la etapa 4',
+    aumentar: {
+      answer: 'No',
+      decision: 'tope',
+      title: 'La escalera HEARTS termina en la etapa 4',
+      stage,
+      note: 'Mantener el esquema y traspasar la decisión al médico de descompensados.',
+    },
     proximoControl: '2–4 semanas — atención médica en poli de descompensados',
     actividad: 'Consulta médica en policlínico de descompensados',
     derivar: [
@@ -281,6 +325,16 @@ function buildConduct(ctx) {
     registrar: [...moriskyPending, 'Derivación y motivo en la ficha Rayen', 'PA y Morisky en la pestaña HEARTS'],
   };
 }
+
+// El color del panel responde a la decisión sobre el fármaco, no al tono general
+// del control: subir es ámbar, mantener es verde, tope de escalera es rojo.
+const DECISION_STYLES = {
+  iniciar: { frame: 'border-teal-300', header: 'bg-teal-700', badge: 'bg-teal-700', icon: PlayCircle },
+  subir: { frame: 'border-amber-400', header: 'bg-amber-600', badge: 'bg-amber-600', icon: ArrowUpCircle },
+  mantener: { frame: 'border-emerald-300', header: 'bg-emerald-700', badge: 'bg-emerald-700', icon: MinusCircle },
+  espera: { frame: 'border-slate-300', header: 'bg-slate-600', badge: 'bg-slate-600', icon: PauseCircle },
+  tope: { frame: 'border-rose-300', header: 'bg-rose-700', badge: 'bg-rose-700', icon: AlertTriangle },
+};
 
 const CONDUCT_TONES = {
   ok: { card: 'border-emerald-300 bg-emerald-50', accent: 'text-emerald-800' },
@@ -316,10 +370,45 @@ function MedicationList({ medicines, compact = false }) {
   );
 }
 
+function TreatmentPanel({ treatment }) {
+  const style = DECISION_STYLES[treatment.decision] || DECISION_STYLES.espera;
+  const Icon = style.icon;
+
+  return (
+    <div className={`overflow-hidden rounded-xl border-2 ${style.frame}`}>
+      <div className={`flex flex-wrap items-center gap-2.5 px-3.5 py-2.5 ${style.header}`}>
+        <Icon className="h-4 w-4 shrink-0 text-white" />
+        <span className="text-[11px] font-bold uppercase tracking-wide text-white/80">¿Aumentar tratamiento?</span>
+        <span className="ml-auto rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-black uppercase tracking-wide text-white">
+          {treatment.answer}
+        </span>
+      </div>
+
+      <div className="bg-white px-3.5 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {treatment.stage && (
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-black text-white ${style.badge}`}>
+              {treatment.stage.number}
+            </span>
+          )}
+          <p className="text-sm font-bold text-slate-900">{treatment.title}</p>
+        </div>
+
+        {treatment.stage && (
+          <div className="mt-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
+            <MedicationList medicines={treatment.stage.medicines} />
+          </div>
+        )}
+
+        {treatment.note && <p className="mt-2 text-xs leading-snug text-slate-600">{treatment.note}</p>}
+      </div>
+    </div>
+  );
+}
+
 function ConductCard({ conduct }) {
   const tone = CONDUCT_TONES[conduct.tone];
   const blocks = [
-    { icon: ArrowUpCircle, label: '¿Aumentar tratamiento?', values: [conduct.aumentar] },
     { icon: CalendarClock, label: 'Próximo control', values: [conduct.proximoControl] },
     { icon: Stethoscope, label: 'Actividad a registrar', values: [conduct.actividad] },
     { icon: ClipboardList, label: 'Registrar', values: conduct.registrar.length ? conduct.registrar : ['—'] },
@@ -330,7 +419,11 @@ function ConductCard({ conduct }) {
       <p className={`text-xs font-bold uppercase tracking-wider ${tone.accent}`}>Conducta según el flujo</p>
       <p className="mt-1.5 text-[15px] font-bold leading-relaxed text-slate-900">{conduct.headline}</p>
 
-      <div className="mt-3.5 grid gap-2 sm:grid-cols-2">
+      <div className="mt-3.5">
+        <TreatmentPanel treatment={conduct.aumentar} />
+      </div>
+
+      <div className="mt-2 grid gap-2 sm:grid-cols-3">
         {blocks.map(block => {
           const Icon = block.icon;
           return (
@@ -548,9 +641,11 @@ export default function HeartsPathway() {
       lines.push(`PA de control: ${hasPressure ? `${systolic}/${diastolic} mmHg (${atGoal ? 'en meta del flujo' : 'fuera de meta del flujo'})` : 'no registrada'}`);
       lines.push(`Morisky MMAS-8: ${morisky === null ? 'no registrado' : `${morisky}/8${lowAdherence ? ' — baja adherencia' : midAdherence ? ' — adherencia intermedia' : ' — alta adherencia'}`}`);
     }
+    const treatment = conduct.aumentar;
+    const scheme = treatment.stage ? ` (${treatment.stage.medicines.map(m => `${m.name} ${m.dose}`).join(' + ')})` : '';
     lines.push(
       `Conducta: ${conduct.headline}`,
-      `Aumentar tratamiento: ${conduct.aumentar}`,
+      `Aumentar tratamiento: ${treatment.answer} — ${treatment.title}${scheme}`,
       `Próximo control: ${conduct.proximoControl}`,
       `Actividad a registrar: ${conduct.actividad}`,
       `Derivar: ${conduct.derivar.length ? conduct.derivar.map(item => `${item.to} (${item.detail})`).join('; ') : '—'}`,
