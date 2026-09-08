@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PatientData, PatientGroup } from '@/types/protocol';
 import { getDoseRecommendations, getClassificationDetails } from '@/utils/insulina/protocolLogic';
-import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Printer } from 'lucide-react';
+import { AlertCircle, AlertTriangle, BedDouble, CheckCircle2, FileText, Printer } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -15,6 +15,8 @@ interface ResultsStepProps {
   onBack: () => void;
   onReset: () => void;
   usoCondicionado?: boolean;
+  onIndexResult?: (result: Record<string, unknown>) => void;
+  indexLabel?: string;
 }
 
 const groupInfo = {
@@ -38,7 +40,7 @@ const groupInfo = {
   },
 };
 
-export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado }: ResultsStepProps) {
+export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onIndexResult, indexLabel = 'Asociar a cama (opcional)' }: ResultsStepProps) {
   const [corticoideOverride, setCorticoideOverride] = useState<'resistente' | 'sensible' | null>(null);
 
   const mostrarAlertaCorticoide = grupo === 'sensible' && data.corticoidesSistemicos;
@@ -69,7 +71,11 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado }: R
   return (
     <div className="space-y-6">
       {/* Botón de impresión - solo visible en pantalla */}
-      <div className="print:hidden flex justify-end">
+      <div className="print:hidden flex flex-wrap justify-end gap-2">
+        {onIndexResult && <Button onClick={() => onIndexResult({ grupo: grupoEfectivo, clasificacion: info.title, pesoKg: data.peso, glicemiaIngreso: data.glicemiaIngreso, recomendaciones: recommendations, usoCondicionado: Boolean(usoCondicionado), datos: data })} variant="outline" className="gap-2 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+          <BedDouble className="w-4 h-4" />
+          {indexLabel}
+        </Button>}
         <Button onClick={handlePrint} variant="outline" className="gap-2">
           <Printer className="w-4 h-4" />
           Imprimir Esquema

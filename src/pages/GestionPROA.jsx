@@ -779,6 +779,10 @@ function GestionPROA() {
     rut: '',
     edad: '',
     sexo: '',
+    diabetes_evaluado: false,
+    diabetes: null,
+    diabetes_evaluado_en: '',
+    diabetes_registro_previo: false,
     creatinina: '',
     fecha_creatinina: '',
     fecha_ingreso: '',
@@ -1028,6 +1032,7 @@ function GestionPROA() {
       const diagnoses = [shared.diagnostico_principal || shared.diagnostico, ...String(shared.diagnostico_desglose || '').split(/\n|;/)].map(item => String(item || '').trim()).filter(Boolean);
       setPreAdmission({
         servicio: findServiceForBed(deepLink.bed), cama: deepLink.bed, paciente: shared.patient_name || '', rut: shared.patient_rut || '', edad: shared.edad || '', sexo: shared.sexo || '',
+        diabetes_evaluado: shared.diabetes_evaluado === true, diabetes: shared.diabetes === true, diabetes_evaluado_en: shared.diabetes_evaluado_en || '', diabetes_registro_previo: shared.diabetes_evaluado === true,
         creatinina: '', fecha_creatinina: localTodayIso(), fecha_ingreso: shared.fecha_ingreso || localTodayIso(),
         antibioticos: shared.proa_antibioticos?.length ? shared.proa_antibioticos : [{ ...EMPTY_PRE_ANTIBIOTIC }], cultivos: [{ ...EMPTY_PRE_CULTURE }],
         diagnostico: diagnoses[0] || '', diagnosticos: diagnoses.length ? diagnoses : [''],
@@ -1155,6 +1160,7 @@ function GestionPROA() {
     return {
       servicio: findServiceForBed(record.bedCode) || form.servicio || '', cama: record.bedCode,
       paciente: form.paciente || '', rut: form.rut || '', edad: form.edad || '', sexo: form.sexo || '',
+      diabetes_evaluado: form.diabetes_evaluado === true, diabetes: form.diabetes_evaluado === true ? form.diabetes === true : null, diabetes_evaluado_en: form.diabetes_evaluado_en || '', diabetes_registro_previo: form.diabetes_evaluado === true,
       fecha_nacimiento: form.fecha_nacimiento || '', direccion: form.direccion || '', comuna: form.comuna || '',
       telefono: form.telefono || '', prevision: form.prevision || '', antecedentes: form.antecedentes || '',
       creatinina: systemLatestCreatinine?.valor || form.creatinina || '', fecha_creatinina: systemLatestCreatinine?.fecha || form.fecha_creatinina || localTodayIso(),
@@ -1201,6 +1207,10 @@ function GestionPROA() {
       rut: '',
       edad: '',
       sexo: '',
+      diabetes_evaluado: false,
+      diabetes: null,
+      diabetes_evaluado_en: '',
+      diabetes_registro_previo: false,
       creatinina: '',
       fecha_creatinina: localTodayIso(),
       fecha_ingreso: '',
@@ -1233,6 +1243,7 @@ function GestionPROA() {
         const diagnoses = (preAdmission.diagnosticos || []).filter(Boolean);
         await updateProaEvolution(editingEvolution.record, editingEvolution.index, {
           paciente: preAdmission.paciente, rut: preAdmission.rut, edad: preAdmission.edad, sexo: preAdmission.sexo,
+          diabetes_evaluado: preAdmission.diabetes_evaluado === true, diabetes: preAdmission.diabetes === true, diabetes_evaluado_en: preAdmission.diabetes_evaluado_en || new Date().toISOString(),
           servicio, cama: preAdmission.cama, fecha_ingreso: preAdmission.fecha_ingreso,
           diagnostico_principal: diagnoses[0] || '', diagnostico_desglose: diagnoses.slice(1).join('\n'), diagnosticos_actuales: diagnoses, diagnostico_actual: diagnoses.join('; '),
           aislamiento: preAdmission.aislamiento || '', evolucion: preAdmission.evolucion || '', vista_ultima_evolucion: preAdmission.evolucion || '',
@@ -1245,7 +1256,7 @@ function GestionPROA() {
       if (!keepOpen) {
         setShowPreAdmission(false);
         setEditingEvolution(null);
-      }
+      } else setPreAdmission((current) => ({ ...current, diabetes_registro_previo: true }));
       if (previewAfter) setShowEvolutionPreview(true);
       setSelectedBed(preAdmission.cama);
       setActiveService(servicio || activeService);
@@ -1261,6 +1272,10 @@ function GestionPROA() {
   const savePreAdmission = async (options = {}) => {
     if (!preAdmission.cama || !preAdmission.edad || !preAdmission.fecha_ingreso || !(preAdmission.diagnosticos || [preAdmission.diagnostico]).some((item) => item.trim())) {
       setPreAdmissionError('Completa cama, edad, fecha de ingreso y diagnóstico.');
+      return;
+    }
+    if (preAdmission.diabetes_evaluado !== true) {
+      setPreAdmissionError('Confirma obligatoriamente si el paciente es diabético. Esta pregunta se guarda sólo la primera vez.');
       return;
     }
     const incompleteAntibiotic = preAdmission.antibioticos.some((item) => (
@@ -2441,6 +2456,7 @@ function GestionPROA() {
             <p className="text-[11px] text-slate-500 md:col-span-12">
               Nombre, RUT y edad se guardan exclusivamente en Gestión/Evolución PROA.
             </p>
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 md:col-span-12"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-sky-900">Diabetes · verificación inicial *</p><p className="text-[11px] text-sky-700">Obligatoria en la primera atención PROA; la respuesta queda guardada.</p></div>{preAdmission.diabetes_evaluado === true && <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-sky-900 ring-1 ring-sky-300">Registrado: {preAdmission.diabetes ? 'Sí' : 'No'}</span>}</div>{!preAdmission.diabetes_registro_previo && <div className="mt-3 flex gap-2">{[['Sí', true], ['No', false]].map(([label, value]) => <button key={label} type="button" onClick={() => setPreAdmission(current => ({ ...current, diabetes_evaluado: true, diabetes: value, diabetes_evaluado_en: current.diabetes_evaluado_en || new Date().toISOString() }))} className={`rounded-lg border px-4 py-2 text-sm font-bold ${preAdmission.diabetes_evaluado === true && preAdmission.diabetes === value ? 'border-sky-500 bg-sky-700 text-white' : 'border-sky-200 bg-white text-sky-800'}`}>{label}</button>)}</div>}</div>
             <div className="space-y-1.5 md:col-span-3">
               <Label htmlFor="proa-pre-sex">Sexo para cálculo de VFG</Label>
               <select

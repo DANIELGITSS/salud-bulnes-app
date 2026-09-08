@@ -33,7 +33,8 @@ export default function CalculatorWrapper({
   showPatientInfo = true,
   printOnly = false,
   requestRecordLocation = false,
-  onRecordResult,
+  onRecordResult = null,
+  embeddedPatientContext = false,
 }) {
   const [patientInfo, setPatientInfo] = useState({
     name: '',
@@ -48,7 +49,8 @@ export default function CalculatorWrapper({
   // Modo de uso: 'consultivo' (sin datos de paciente) o 'registro' (nombre/RUT obligatorios).
   const [mode, setMode] = useState('consultivo');
 
-  const needsPatient = showPatientInfo && mode === 'registro';
+  const recordsClinicalResult = showPatientInfo && !embeddedPatientContext && mode === 'registro';
+  const needsPatient = recordsClinicalResult && !requestRecordLocation;
   const patientValid = !needsPatient || (patientInfo.name.trim() !== '' && patientInfo.rut.trim() !== '');
 
   const handlePrint = () => {
@@ -84,7 +86,7 @@ export default function CalculatorWrapper({
     const calcResult = onCalculate();
     if (calcResult) {
       saveToHistory({ inputs, result: calcResult });
-      if (needsPatient && onRecordResult) onRecordResult({ inputs, result: calcResult, patientInfo });
+      if (recordsClinicalResult && onRecordResult) onRecordResult({ inputs, result: calcResult, patientInfo: needsPatient ? patientInfo : null });
     }
   };
 
@@ -113,7 +115,7 @@ export default function CalculatorWrapper({
       </div>
 
       {/* Modo de uso: consultivo (sin datos) o registro clínico (paciente obligatorio) */}
-      {showPatientInfo && (
+      {showPatientInfo && !embeddedPatientContext && (
         <div className="mb-5">
           <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 text-xs font-semibold shadow-sm">
             <button
@@ -133,7 +135,7 @@ export default function CalculatorWrapper({
           </div>
           <p className="mt-1.5 text-[11px] text-slate-500">
             {mode === 'registro'
-              ? 'Registro clínico: nombre y RUT obligatorios; el resultado se puede imprimir para la ficha.'
+              ? requestRecordLocation ? 'Registro clínico: al guardar se solicitará ubicación, iniciales y edad, sin mostrar datos del ocupante.' : 'Registro clínico: nombre y RUT obligatorios; el resultado se puede imprimir para la ficha.'
               : 'Consultivo: uso rápido sin datos del paciente.'}
           </p>
         </div>
@@ -227,8 +229,8 @@ export default function CalculatorWrapper({
         )}
         {result && (
           <>
-            {printOnly && needsPatient && onRecordResult && (
-              <Button type="button" onClick={() => onRecordResult({ inputs, result, patientInfo })} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Guardar en registro hospitalario'} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
+            {printOnly && recordsClinicalResult && onRecordResult && (
+              <Button type="button" onClick={() => onRecordResult({ inputs, result, patientInfo: needsPatient ? patientInfo : null })} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Guardar en registro hospitalario'} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
                 Guardar en registro
               </Button>
             )}

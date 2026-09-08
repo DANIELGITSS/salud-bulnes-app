@@ -698,6 +698,9 @@ const EMPTY = {
   rut: '',
   edad: '',
   sexo: '',
+  diabetes_evaluado: false,
+  diabetes: null,
+  diabetes_evaluado_en: '',
   creatinina: '',
   fecha_creatinina: '',
   creatininas: [],
@@ -840,6 +843,7 @@ function VisitaPROA() {
     const merged = {
       ...EMPTY,
       ...(pending || {}),
+      __diabetesPreviouslyRecorded: pending?.diabetes_evaluado === true,
       proa_entry_type: 'evolucion',
       publicar_estado_clinico_general: pending?.__proaEditLatest ? Boolean(pending?.publicar_estado_clinico_general) : false,
       fecha: todayIso(),
@@ -961,6 +965,10 @@ function VisitaPROA() {
       setRegistryMessage('Selecciona una cama antes de guardar el registro PROA.');
       return false;
     }
+    if (f.diabetes_evaluado !== true) {
+      setRegistryMessage('Antes de guardar, confirma obligatoriamente si el paciente es diabético. Esta pregunta se realiza una sola vez.');
+      return false;
+    }
     const dischargeDate = dischargePatient ? todayIso() : '';
     if (dischargePatient && f.fecha_ingreso && dischargeDate < f.fecha_ingreso) {
       setRegistryMessage('La fecha de egreso no puede ser anterior a la fecha de ingreso.');
@@ -973,6 +981,7 @@ function VisitaPROA() {
     const publishedClinicalState = String(f.evolucion || '').trim();
     const formToSave = {
       ...f,
+      diabetes_evaluado_en: f.diabetes_evaluado_en || new Date().toISOString(),
       diagnostico_actual: (f.diagnosticos_actuales || []).filter(Boolean).join('; ') || f.diagnostico_actual,
       creatininas: f.creatinina
         ? [...(f.creatininas || []).filter((item) => item.fecha !== f.fecha_creatinina), { fecha: f.fecha_creatinina || f.fecha || todayIso(), valor: f.creatinina }]
@@ -998,7 +1007,7 @@ function VisitaPROA() {
         navigate(createPageUrl('GestionPROA'), { replace: true });
         return true;
       }
-      const savedForm = { ...formToSave, __proaRegistryMode: '', __proaEditLatest: false };
+      const savedForm = { ...formToSave, __proaRegistryMode: '', __proaEditLatest: false, __diabetesPreviouslyRecorded: true };
       initialSnapshotRef.current = JSON.stringify(savedForm);
       setF(savedForm);
       setRegistryMessage(editingExistingEvolution
@@ -1299,6 +1308,10 @@ ${JSON.stringify(buildProaContext(f), null, 2)}`;
                 <Field label="Comorbilidades" span="md:col-span-2">
                   <Input value={f.comorbilidades} onChange={e => u('comorbilidades', e.target.value)} className="h-9" />
                 </Field>
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 md:col-span-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-sky-900">Diabetes · verificación inicial *</p><p className="text-[11px] text-sky-700">Obligatoria sólo la primera vez; luego queda almacenada en la ficha.</p></div>{f.diabetes_evaluado === true && <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-sky-900 ring-1 ring-sky-300">Registrado: {f.diabetes ? 'Sí' : 'No'}</span>}</div>
+                  {!f.__diabetesPreviouslyRecorded && <div className="mt-3 flex gap-2">{[['Sí', true], ['No', false]].map(([label, value]) => <button key={label} type="button" onClick={() => setF(prev => ({ ...prev, diabetes_evaluado: true, diabetes: value, diabetes_evaluado_en: prev.diabetes_evaluado_en || new Date().toISOString() }))} className={`rounded-lg border px-4 py-2 text-sm font-bold ${f.diabetes_evaluado === true && f.diabetes === value ? 'border-sky-500 bg-sky-700 text-white' : 'border-sky-200 bg-white text-sky-800'}`}>{label}</button>)}</div>}
+                </div>
                 <Field label="Sexo para VFG">
                   <select value={f.sexo} onChange={e => u('sexo', e.target.value)} className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm">
                     <option value="">Seleccionar...</option>

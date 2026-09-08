@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Calculator, AlertCircle, BedDouble, CheckCircle2, Info } from 'lucide-react';
+import { Calculator, AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import CalculatorWrapper from '../calculator/CalculatorWrapper';
-import { loadNrsHospitalLocations, saveNrsResultToHospitalLocation } from '@/lib/hospitalNrsRegistry';
+import HospitalLocationIndexDialog from '@/components/hospitalizados/HospitalLocationIndexDialog';
+import { saveNrsResultToHospitalLocation } from '@/lib/hospitalNrsRegistry';
 
 // Justificaciones de muy alto riesgo por indicación médica (protocolo local HCSFB).
 // Si el clínico marca al menos una, el paciente se categoriza como muy alto riesgo
@@ -29,48 +30,7 @@ export default function NRS2002Calculator({ onApplyResult }) {
   const [medicalReasons, setMedicalReasons] = useState([]);
   const [nutritionalException, setNutritionalException] = useState(null); // null | 'si' | 'no'
   const [registryPrompt, setRegistryPrompt] = useState(null);
-  const [hospitalLocations, setHospitalLocations] = useState([]);
-  const [locationService, setLocationService] = useState('');
-  const [locationBed, setLocationBed] = useState('');
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [locationSaving, setLocationSaving] = useState(false);
-  const [locationMessage, setLocationMessage] = useState('');
-
-  useEffect(() => {
-    if (!registryPrompt) return undefined;
-    let active = true;
-    setLocationLoading(true);
-    loadNrsHospitalLocations()
-      .then(locations => { if (active) setHospitalLocations(locations); })
-      .catch(() => { if (active) setLocationMessage('No fue posible cargar las camas. Intenta nuevamente.'); })
-      .finally(() => { if (active) setLocationLoading(false); });
-    return () => { active = false; };
-  }, [registryPrompt]);
-
-  const locationServices = [...new Map(hospitalLocations.map(location => [location.service, location.serviceLabel])).entries()];
-  const serviceBeds = hospitalLocations.filter(location => location.service === locationService);
-  const requestHospitalIndex = payload => {
-    setRegistryPrompt(payload);
-    setLocationService('');
-    setLocationBed('');
-    setLocationMessage('');
-  };
-  const saveHospitalIndex = async () => {
-    if (!registryPrompt || !locationService || !locationBed) return;
-    setLocationSaving(true);
-    setLocationMessage('');
-    const outcome = await saveNrsResultToHospitalLocation({
-      service: locationService,
-      bedCode: locationBed,
-      patientInfo: registryPrompt.patientInfo,
-      result: registryPrompt.result,
-      inputs: registryPrompt.inputs,
-    });
-    setLocationSaving(false);
-    setLocationMessage(outcome.synced
-      ? 'Resultado NRS-2002 asociado correctamente al registro hospitalario.'
-      : 'Resultado conservado en este equipo, pero no fue posible sincronizarlo con la base central.');
-  };
+  const requestHospitalIndex = payload => setRegistryPrompt(payload);
 
   // Mini calculadora de IMC: aparece en dos lugares (Q1 del tamizaje y en la
   // evaluación formal). `imcCalcTarget` marca quién la abrió para que el botón
@@ -434,6 +394,7 @@ export default function NRS2002Calculator({ onApplyResult }) {
       printOnly={printOnly}
       requestRecordLocation
       onRecordResult={requestHospitalIndex}
+      embeddedPatientContext={Boolean(onApplyResult)}
     >
 
       <div className="space-y-6">
@@ -993,28 +954,7 @@ export default function NRS2002Calculator({ onApplyResult }) {
         )}
       </div>
     </CalculatorWrapper>
-    {registryPrompt && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Asociar NRS-2002 a cama hospitalaria">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-2xl">
-        <header className="flex items-start gap-3 border-b border-emerald-200 bg-emerald-50 p-5">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-800"><BedDouble className="h-5 w-5" /></span>
-          <div><h3 className="font-black text-slate-950">Indexar resultado NRS-2002</h3><p className="mt-1 text-sm text-slate-600">Selecciona únicamente la ubicación hospitalaria.</p></div>
-        </header>
-        <div className="space-y-4 p-5">
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-            Esta búsqueda no muestra nombres, diagnósticos ni otros datos del paciente. Si la cama ya tiene un registro vigente, el resultado se agrega allí; de lo contrario se crea el registro mínimo correspondiente.
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div><Label className="text-xs font-bold text-slate-700">Servicio</Label><select value={locationService} onChange={event => { setLocationService(event.target.value); setLocationBed(''); setLocationMessage(''); }} disabled={locationLoading || locationSaving} className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-500"><option value="">{locationLoading ? 'Cargando…' : 'Seleccionar servicio…'}</option>{locationServices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
-            <div><Label className="text-xs font-bold text-slate-700">Cama</Label><select value={locationBed} onChange={event => { setLocationBed(event.target.value); setLocationMessage(''); }} disabled={!locationService || locationLoading || locationSaving} className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-500"><option value="">{locationService ? 'Seleccionar cama…' : 'Primero selecciona servicio'}</option>{serviceBeds.map(location => <option key={location.code} value={location.code}>{[location.unitLabel, `Cama ${location.bedLabel}`].filter(Boolean).join(' · ')}</option>)}</select></div>
-          </div>
-          {locationMessage && <div className={`rounded-lg border p-3 text-sm font-semibold ${/correctamente/i.test(locationMessage) ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : /conservado/i.test(locationMessage) ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-700'}`}>{locationMessage}</div>}
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
-          <Button type="button" variant="outline" onClick={() => setRegistryPrompt(null)} disabled={locationSaving}>{/correctamente|conservado/i.test(locationMessage) ? 'Cerrar' : 'Cancelar'}</Button>
-          {!/correctamente|conservado/i.test(locationMessage) && <Button type="button" onClick={saveHospitalIndex} disabled={!locationService || !locationBed || locationSaving} className="bg-emerald-700 hover:bg-emerald-800">{locationSaving ? 'Guardando…' : 'Asociar resultado'}</Button>}
-        </footer>
-      </div>
-    </div>}
+    <HospitalLocationIndexDialog open={Boolean(registryPrompt)} title="Indexar resultado NRS-2002" description="Selecciona una ubicación y confirma la identidad mínima." onClose={() => setRegistryPrompt(null)} onSave={(location) => saveNrsResultToHospitalLocation({ ...location, patientInfo: registryPrompt?.patientInfo, result: registryPrompt?.result, inputs: registryPrompt?.inputs })} />
   </>
   );
 }

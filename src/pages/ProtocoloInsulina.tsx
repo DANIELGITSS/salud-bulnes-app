@@ -13,6 +13,8 @@ import { Activity, FileText, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { getMultiPrefill } from '@/lib/multiTemplatePrefill';
+import HospitalLocationIndexDialog from '@/components/hospitalizados/HospitalLocationIndexDialog';
+import { saveInsulinProtocolToHospitalLocation } from '@/lib/hospitalNrsRegistry';
 
 const ProtocoloInsulina = () => {
   const navigate = useNavigate();
@@ -22,6 +24,9 @@ const ProtocoloInsulina = () => {
   );
   const [activeTab, setActiveTab] = useState('1');
   const [usoCondicionado, setUsoCondicionado] = useState(false);
+  const [indexResult, setIndexResult] = useState<Record<string, unknown> | null>(null);
+  const [sourceContext, setSourceContext] = useState<Record<string, unknown> | null>(null);
+  const [indexMessage, setIndexMessage] = useState('');
   const [patientData, setPatientData] = useState<PatientData>({
     edad: 0,
     peso: 0,
@@ -46,6 +51,7 @@ const ProtocoloInsulina = () => {
   useEffect(() => {
     const prefill = getMultiPrefill();
     if (!prefill || prefill.source !== 'vista_general') return;
+    setSourceContext(prefill);
     const exams = Array.isArray(prefill.proa_examenes) ? prefill.proa_examenes : [];
     const sortedExams = exams.slice().sort((a, b) => String(b?.fecha || '').localeCompare(String(a?.fecha || '')));
     // Toma el valor más reciente disponible del campo, aunque no esté en la última fila.
@@ -100,6 +106,16 @@ const ProtocoloInsulina = () => {
   const grupo = classifyPatient(patientData);
   const tab1Complete = patientData.edad > 0 && patientData.sexo !== '' && patientData.peso > 0;
   const tab3Complete = patientData.glicemiaIngreso > 0;
+  const handleIndexResult = async (result: Record<string, unknown>) => {
+    if (!sourceContext?.source_bed) { setIndexResult(result); return; }
+    const patientName = String(sourceContext.patient_name || '');
+    const initials = patientName.split(/\s+/).filter(Boolean).map(word => word[0]).join('').toUpperCase();
+    setIndexMessage('Guardando protocolo en la ficha abierta…');
+    try {
+      const outcome = await saveInsulinProtocolToHospitalLocation({ service: String(sourceContext.source_service || sourceContext.servicio || ''), bedCode: String(sourceContext.source_bed), associationMode: 'current', initials, age: String(sourceContext.edad || patientData.edad), result });
+      setIndexMessage(outcome.synced ? 'Protocolo asociado correctamente a la ficha abierta.' : 'Protocolo conservado en este equipo; la sincronización central quedó pendiente.');
+    } catch (error) { setIndexMessage(error instanceof Error ? error.message : 'No fue posible asociar el protocolo.'); }
+  };
 
   return (
     <>
@@ -169,7 +185,8 @@ const ProtocoloInsulina = () => {
                 <MetabolicStep data={patientData} peso={patientData.peso} edad={patientData.edad} sexo={patientData.sexo} onUpdate={updatePatientData} onNext={() => setActiveTab('4')} onBack={() => setActiveTab('2')} />
               </TabsContent>
               <TabsContent value="4">
-                <ResultsStep data={patientData} grupo={grupo} onBack={() => setActiveTab('3')} onReset={handleReset} usoCondicionado={usoCondicionado} />
+                {indexMessage && <div className={`mb-4 rounded-lg border p-3 text-sm font-semibold print:hidden ${/correctamente/i.test(indexMessage) ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : /pendiente|Guardando/i.test(indexMessage) ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-700'}`}>{indexMessage}</div>}
+                <ResultsStep data={patientData} grupo={grupo} onBack={() => setActiveTab('3')} onReset={handleReset} usoCondicionado={usoCondicionado} onIndexResult={handleIndexResult} indexLabel={sourceContext ? 'Guardar en ficha del paciente' : 'Asociar a cama (opcional)'} />
               </TabsContent>
             </Tabs>
           </Card>
@@ -205,6 +222,7 @@ const ProtocoloInsulina = () => {
             </Dialog>
           </footer>
         </main>
+        <HospitalLocationIndexDialog open={Boolean(indexResult)} title="Indexar protocolo insulínico" description="La asociación a servicio y cama es opcional." actionLabel="Asociar protocolo" onClose={() => setIndexResult(null)} onSave={(location) => saveInsulinProtocolToHospitalLocation({ ...location, result: indexResult })} />
       </div>
     </>
   );

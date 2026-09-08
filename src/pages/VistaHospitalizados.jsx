@@ -31,6 +31,7 @@ const EMPTY = {
   ultimaEvolucionActualizadaEn: '',
   signosVitales: '', oxigenoterapiaTipo: '', oxigenoterapiaCantidad: '', drogasVasoactivas: '', soporteClinico: '',
   letIndicacion: '', iotIndicacion: '', rcpIndicacion: '', pacienteSocial: false, escalas: [], evaluacionesNutricionales: [], historialActualizaciones: [],
+  diabetesEvaluado: false, diabetes: null, diabetesEvaluadoEn: '', protocolosInsulina: [],
   informesMedicos: [], cultivos: [],
   reingresoEvaluado: false, reingresoMenor30: false, reingresoFechaEgresoPrevia: '', reingresoEvaluadoEn: '',
 };
@@ -136,6 +137,7 @@ const TEST_PATIENT = {
   ...EMPTY, nombre: 'Paciente PROA de Prueba', rut: '11.111.111-1', edad: '68', sexo: 'F', fechaNacimiento: '1958-05-14', fechaIngreso: '2026-08-08',
   diagnosticoPrincipal: 'Neumonía adquirida en la comunidad', diagnostico: 'Insuficiencia respiratoria aguda hipoxémica', antecedentes: 'Hipertensión arterial. Diabetes mellitus tipo 2.',
   resumenCaso: 'Paciente estable, afebril y con requerimiento bajo de oxígeno.', ultimaEvolucion: 'Evolución favorable; menor disnea y sin fiebre.', planesPendientes: 'Control de laboratorio y reevaluación de antibioterapia.',
+  diabetesEvaluado: true, diabetes: true, diabetesEvaluadoEn: '2026-09-01T09:00:00-04:00', protocolosInsulina: [],
   ultimaEvolucionActualizadaEn: '2026-09-01T09:00:00-04:00',
   estudiosComplementarios: 'Imagenología · 2026-08-08 · Radiografía de tórax: infiltrado basal derecho · Informado', estudiosDetalle: [{ fecha: '2026-08-08', tipo: 'Imagenología', estudio: 'Radiografía de tórax: infiltrado basal derecho', estado: 'Informado' }],
   aislamiento: 'Precauciones de gotitas', antibioticos: [{ nombre: 'Ceftriaxona', presentacion: 'Polvo para solución inyectable · 1 g', dosis_cantidad: '2', dosis_unidad: 'g', intervalo_horas: '24', via: 'EV', inicio: '2026-08-08', termino: '' }],
@@ -561,9 +563,14 @@ function latestReadmissionEvaluation(record) {
   return (record?.evolutions || []).map(evolution => evolution?.form || {}).find(form => form.reingreso_evaluado === true) || null;
 }
 
+function latestDiabetesEvaluation(record) {
+  return (record?.evolutions || []).map(evolution => evolution?.form || {}).find(form => form.diabetes_evaluado === true) || null;
+}
+
 function proaToPatient(record) {
   const form = getLatestProaForm(record) || {};
   const readmissionForm = latestReadmissionEvaluation(record);
+  const diabetesForm = latestDiabetesEvaluation(record) || form;
   const laboratoryRows = collectProaLaboratoryRows(record);
   const latestCreatinineRow = laboratoryRows.find(row => row.crea !== '' && row.crea != null);
   const clinicalForm = { ...form, parametros_inflamatorios: laboratoryRows, creatinina: latestCreatinineRow?.crea || form.creatinina || '', fecha_creatinina: latestCreatinineRow?.fecha || form.fecha_creatinina || '' };
@@ -590,6 +597,8 @@ function proaToPatient(record) {
     cultivos: Array.isArray(form.estudios_micro) ? form.estudios_micro : [],
     letIndicacion: form.let_indicacion || form.let || '', iotIndicacion: form.iot_indicacion || form.iot || '', rcpIndicacion: form.rcp_indicacion || form.rcp || '', pacienteSocial: Boolean(form.paciente_social),
     escalas: Array.isArray(form.vista_escalas) ? form.vista_escalas : [], evaluacionesNutricionales: Array.isArray(form.vista_evaluaciones_nutricionales) ? form.vista_evaluaciones_nutricionales : [],
+    diabetesEvaluado: diabetesForm.diabetes_evaluado === true, diabetes: diabetesForm.diabetes_evaluado === true ? diabetesForm.diabetes === true : null, diabetesEvaluadoEn: diabetesForm.diabetes_evaluado_en || '',
+    protocolosInsulina: Array.isArray(form.vista_protocolos_insulina) ? form.vista_protocolos_insulina : [],
     informesMedicos: Array.isArray(form.vista_informes_medicos) ? form.vista_informes_medicos : [],
     reingresoEvaluado: Boolean(readmissionForm),
     reingresoMenor30: readmissionForm?.reingreso_menor_30 === true,
@@ -626,7 +635,7 @@ function mergePatient(base, local) {
     merged.reingresoEvaluadoEn = readmissionSource.reingresoEvaluadoEn || '';
   }
   const proaIsNewer = String(base.proaUpdatedAt || '') > String(local?.updatedAt || '');
-  if (proaIsNewer) ['nombre', 'rut', 'fechaNacimiento', 'edad', 'sexo', 'direccion', 'comuna', 'fechaIngreso', 'proaRecordId', 'proaBedCode', 'proaEnrolled', 'pacienteSocial', 'diagnosticoPrincipal', 'diagnostico', 'antibioterapia', 'antibioticos', 'aislamiento', 'patogenoAislado', 'ultimoLaboratorio', 'laboratorios', 'cultivos', 'ultimaEvolucion', 'ultimaEvolucionActualizadaEn', 'planProa', 'planesAmbitos', 'planesPendientes', 'planAlta', 'informesMedicos'].forEach(key => {
+  if (proaIsNewer) ['nombre', 'rut', 'fechaNacimiento', 'edad', 'sexo', 'direccion', 'comuna', 'fechaIngreso', 'proaRecordId', 'proaBedCode', 'proaEnrolled', 'pacienteSocial', 'diabetesEvaluado', 'diabetes', 'diabetesEvaluadoEn', 'protocolosInsulina', 'evaluacionesNutricionales', 'diagnosticoPrincipal', 'diagnostico', 'antibioterapia', 'antibioticos', 'aislamiento', 'patogenoAislado', 'ultimoLaboratorio', 'laboratorios', 'cultivos', 'ultimaEvolucion', 'ultimaEvolucionActualizadaEn', 'planProa', 'planesAmbitos', 'planesPendientes', 'planAlta', 'informesMedicos'].forEach(key => {
     const explicitlyClearable = ['ultimaEvolucion', 'ultimaEvolucionActualizadaEn'].includes(key);
     if ((explicitlyClearable && base[key] !== undefined) || (base[key] !== '' && base[key] !== undefined)) merged[key] = base[key];
   });
@@ -976,7 +985,10 @@ function VistaHospitalizados() {
   const [labParseMessage, setLabParseMessage] = useState('');
   const [readmissionOpen, setReadmissionOpen] = useState(false);
   const [readmissionDraft, setReadmissionDraft] = useState({ value: '', detected: false, previousDischargeDate: '' });
+  const [diabetesOpen, setDiabetesOpen] = useState(false);
+  const [diabetesChoice, setDiabetesChoice] = useState('');
   const pendingClinicalAction = useRef(null);
+  const pendingClinicalDraft = useRef(null);
   const emptyLabRow = () => emptyHospitalLabRow();
   const [labRows, setLabRows] = useState(() => [emptyLabRow()]);
 
@@ -1064,6 +1076,16 @@ function VistaHospitalizados() {
   const showDraftEvolutionHistory = historyFilter === 'all' || historyFilter === 'drafts';
   const latestEvolutionMeta = useMemo(() => latestFieldMetadata(draft.historialActualizaciones, 'ultimaEvolucion', draft.ultimaEvolucion), [draft.historialActualizaciones, draft.ultimaEvolucion]);
   const clinicalStateStatus = useMemo(() => clinicalStateIndicator(draft, latestEvolutionMeta), [draft, latestEvolutionMeta]);
+  const essentialStatusLabels = useMemo(() => {
+    const latestNutrition = draft.evaluacionesNutricionales?.[0];
+    const hasNutritionRisk = latestNutrition && !/sin riesgo|normal|no aplica/i.test(String(latestNutrition.riesgo || latestNutrition.evaluacion || ''));
+    const labels = [{ key: 'clinical', text: clinicalStateStatus.state === 'current' ? 'Actualizado hoy' : clinicalStateStatus.state === 'stale' ? `Sin actualización hoy${clinicalStateStatus.date ? ` · ${shortClinicalDate(clinicalStateStatus.date)}` : ''}` : 'Sin estado clínico actual', style: clinicalStateStatus.state === 'current' ? 'bg-emerald-100 text-emerald-800 ring-emerald-200' : 'bg-rose-100 text-rose-800 ring-rose-200' }];
+    labels.push(latestNutrition ? { key: 'nutrition', text: hasNutritionRisk ? 'Riesgo nutricional' : 'NRS-2002 registrado', style: hasNutritionRisk ? 'bg-rose-100 text-rose-800 ring-rose-200' : 'bg-emerald-100 text-emerald-800 ring-emerald-200' } : { key: 'nutrition', text: 'NRS-2002 pendiente', style: 'bg-amber-100 text-amber-900 ring-amber-200' });
+    if (!draft.diabetesEvaluado) labels.push({ key: 'diabetes', text: 'Diabetes por confirmar', style: 'bg-amber-100 text-amber-900 ring-amber-200' });
+    else if (draft.diabetes) labels.push({ key: 'diabetes', text: 'Diabetes', style: 'bg-sky-100 text-sky-800 ring-sky-200' });
+    if (draft.diabetes) labels.push((draft.protocolosInsulina || []).length ? { key: 'insulin', text: 'Protocolo insulínico registrado', style: 'bg-emerald-100 text-emerald-800 ring-emerald-200' } : { key: 'insulin', text: 'Protocolo insulínico pendiente', style: 'bg-amber-100 text-amber-900 ring-amber-200' });
+    return labels;
+  }, [clinicalStateStatus, draft.diabetes, draft.diabetesEvaluado, draft.evaluacionesNutricionales, draft.protocolosInsulina]);
   const latestPlanMeta = useMemo(() => latestFieldMetadata(draft.historialActualizaciones, 'planesPendientes', draft.planesPendientes), [draft.historialActualizaciones, draft.planesPendientes]);
   const destinationBeds = useMemo(() => displayBeds
     .filter(bed => bed.serviceShort === dischargeDraft.destinoServicio && bed.code !== selectedCode)
@@ -1155,7 +1177,8 @@ function VistaHospitalizados() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     setSaved(true);
   };
-  const saveAllChanges = async () => {
+  const saveAllChanges = async (skipFirstUse = false) => {
+    if (skipFirstUse !== true && !draft.diabetesEvaluado) { requestFirstClinicalUse(() => saveAllChanges(true)); return; }
     if (!selectedCode || savingAll) return;
     setSavingAll(true); setSaved(false);
     const savedDraft = withHistorySnapshot({ ...draft, nombre: normalizeName(draft.nombre), diagnosticoPrincipal: normalizeClinicalText(draft.diagnosticoPrincipal), diagnostico: normalizeClinicalText(draft.diagnostico), updatedAt: new Date().toISOString() });
@@ -1175,7 +1198,8 @@ function VistaHospitalizados() {
           let_indicacion: savedDraft.letIndicacion, iot_indicacion: savedDraft.iotIndicacion, rcp_indicacion: savedDraft.rcpIndicacion, paciente_social: Boolean(savedDraft.pacienteSocial),
           reingreso_evaluado: Boolean(savedDraft.reingresoEvaluado), reingreso_menor_30: Boolean(savedDraft.reingresoMenor30),
           reingreso_fecha_egreso_previa: savedDraft.reingresoFechaEgresoPrevia || '', reingreso_evaluado_en: savedDraft.reingresoEvaluadoEn || '',
-          vista_escalas: savedDraft.escalas || [], vista_evaluaciones_nutricionales: savedDraft.evaluacionesNutricionales || [],
+          diabetes_evaluado: savedDraft.diabetesEvaluado === true, diabetes: savedDraft.diabetes === true, diabetes_evaluado_en: savedDraft.diabetesEvaluadoEn || '',
+          vista_escalas: savedDraft.escalas || [], vista_evaluaciones_nutricionales: savedDraft.evaluacionesNutricionales || [], vista_protocolos_insulina: savedDraft.protocolosInsulina || [],
           fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_general_vista_hospitalizados',
         });
       }
@@ -1203,15 +1227,17 @@ function VistaHospitalizados() {
       return { synced: false, error };
     }
   };
-  const generalSeed = () => ({ ...draft, planesAmbitos: normalizedPlanRows(draft.planesAmbitos).length ? normalizedPlanRows(draft.planesAmbitos) : [{ ...EMPTY_PLAN_AMBITO }], antibioticos: Array.isArray(draft.antibioticos) ? draft.antibioticos : [] });
-  const openGeneral = () => {
+  const generalSeed = (source = draft) => ({ ...source, planesAmbitos: normalizedPlanRows(source.planesAmbitos).length ? normalizedPlanRows(source.planesAmbitos) : [{ ...EMPTY_PLAN_AMBITO }], antibioticos: Array.isArray(source.antibioticos) ? source.antibioticos : [] });
+  const openGeneral = (skipFirstUse = false) => {
+    if (!(skipFirstUse === true || skipFirstUse?.diabetesEvaluado === true)) { requestFirstClinicalUse(openGeneral); return; }
     setEditingHistoryIndex(null);
-    const seed = generalSeed();
+    const source = skipFirstUse?.diabetesEvaluado === true ? skipFirstUse : draft;
+    const seed = generalSeed(source);
     const stored = readEvolutionDrafts()[selectedCode]?.actualizacionClinica;
     // Solo los campos editados vienen del borrador; el resto (datos, exámenes)
     // se toma fresco del registro actual.
     setGeneralDraft(stored ? { ...seed, ...(stored.changed || {}) } : seed);
-    setDiagnosisAndHistoryDraft(stored?.diagnosisAndHistoryDraft ?? combinedDiagnosisAndHistory(draft));
+    setDiagnosisAndHistoryDraft(stored?.diagnosisAndHistoryDraft ?? combinedDiagnosisAndHistory(source));
     setGeneralDraftRestored(Boolean(stored));
     setFullGeneralOpen(true);
   };
@@ -1228,7 +1254,8 @@ function VistaHospitalizados() {
     }
     setEditingHistoryIndex(null); setFullGeneralOpen(false);
   };
-  const openPlans = () => {
+  const openPlans = (skipFirstUse = false) => {
+    if (!(skipFirstUse === true || skipFirstUse?.diabetesEvaluado === true)) { requestFirstClinicalUse(openPlans); return; }
     const rows = normalizedPlanRows(draft.planesAmbitos);
     setPlansDraft({ planProa: draft.planProa || (draft.proaRecordId && !rows.length ? String(draft.planesPendientes || '').replace(/^\(PROA\):\s*/i, '') : ''), planesAmbitos: rows.length ? rows : [{ ...EMPTY_PLAN_AMBITO }], planAlta: draft.planAlta || '' });
     setPlansOpen(true);
@@ -1251,7 +1278,7 @@ function VistaHospitalizados() {
       const records = await fetchProaRecords();
       const latest = getLatestProaForm(records.find(item => item.id === savedDraft.proaRecordId)) || {};
       const diagnoses = [savedDraft.diagnosticoPrincipal, ...String(savedDraft.diagnostico || '').split(/\n|;/)].map(item => item.trim()).filter(Boolean);
-      await saveProaRecord({ ...latest, paciente: savedDraft.nombre, rut: savedDraft.rut, edad: savedDraft.edad, sexo: savedDraft.sexo, direccion: savedDraft.direccion, comuna: savedDraft.comuna, fecha_ingreso: savedDraft.fechaIngreso, antecedentes: savedDraft.antecedentes, diagnostico_principal: savedDraft.diagnosticoPrincipal, diagnostico_desglose: savedDraft.diagnostico, diagnosticos_actuales: diagnoses, diagnostico_actual: diagnoses.join('; '), resumen_caso: savedDraft.resumenCaso, evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion_actualizada_en: savedDraft.ultimaEvolucionActualizadaEn || '', antibioticos: savedDraft.antibioticos, antibioterapia_preingreso: savedDraft.antibioterapia, aislamiento: savedDraft.aislamiento, diagnostico_microbiologico: savedDraft.patogenoAislado, estudios_imagen: savedDraft.estudiosComplementarios, plan_duracion: savedDraft.planProa, vista_planes_ambitos: savedDraft.planesAmbitos, vista_planes_pendientes: savedDraft.planesPendientes, vista_plan_alta: savedDraft.planAlta, vista_observaciones: savedDraft.observaciones, let_indicacion: savedDraft.letIndicacion, iot_indicacion: savedDraft.iotIndicacion, rcp_indicacion: savedDraft.rcpIndicacion, fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_clinica_vista_general' });
+      await saveProaRecord({ ...latest, paciente: savedDraft.nombre, rut: savedDraft.rut, edad: savedDraft.edad, sexo: savedDraft.sexo, diabetes_evaluado: savedDraft.diabetesEvaluado === true, diabetes: savedDraft.diabetes === true, diabetes_evaluado_en: savedDraft.diabetesEvaluadoEn || '', direccion: savedDraft.direccion, comuna: savedDraft.comuna, fecha_ingreso: savedDraft.fechaIngreso, antecedentes: savedDraft.antecedentes, diagnostico_principal: savedDraft.diagnosticoPrincipal, diagnostico_desglose: savedDraft.diagnostico, diagnosticos_actuales: diagnoses, diagnostico_actual: diagnoses.join('; '), resumen_caso: savedDraft.resumenCaso, evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion: savedDraft.ultimaEvolucion, vista_ultima_evolucion_actualizada_en: savedDraft.ultimaEvolucionActualizadaEn || '', antibioticos: savedDraft.antibioticos, antibioterapia_preingreso: savedDraft.antibioterapia, aislamiento: savedDraft.aislamiento, diagnostico_microbiologico: savedDraft.patogenoAislado, estudios_imagen: savedDraft.estudiosComplementarios, plan_duracion: savedDraft.planProa, vista_planes_ambitos: savedDraft.planesAmbitos, vista_planes_pendientes: savedDraft.planesPendientes, vista_plan_alta: savedDraft.planAlta, vista_observaciones: savedDraft.observaciones, let_indicacion: savedDraft.letIndicacion, iot_indicacion: savedDraft.iotIndicacion, rcp_indicacion: savedDraft.rcpIndicacion, fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_clinica_vista_general' });
     }
     writeEvolutionDraft(selectedCode, 'actualizacionClinica', null);
     setDraftHistoryRevision(value => value + 1);
@@ -1321,7 +1348,8 @@ function VistaHospitalizados() {
     setClinicalSupportVisible({ vasoactives: Boolean(String(draft.drogasVasoactivas || '').trim()), supports: Boolean(String(draft.soporteClinico || '').trim()) });
     setEvolutionDraftRestored(false);
   };
-  const openLatestEvolution = () => {
+  const openLatestEvolution = (skipFirstUse = false) => {
+    if (!(skipFirstUse === true || skipFirstUse?.diabetesEvaluado === true)) { requestFirstClinicalUse(openLatestEvolution); return; }
     const stored = readEvolutionDrafts()[selectedCode]?.estadoClinico;
     if (stored) {
       setEvolutionDraft(stored.evolutionDraft || '');
@@ -1356,7 +1384,7 @@ function VistaHospitalizados() {
     writeEvolutionDraft(selectedCode, kind, null);
     setDraftHistoryRevision(value => value + 1);
   };
-  const openClinicalSummary = () => { setSummaryDraft(draft.resumenCaso || ''); setSummaryOpen(true); };
+  const openClinicalSummary = (skipFirstUse = false) => { if (!(skipFirstUse === true || skipFirstUse?.diabetesEvaluado === true)) { requestFirstClinicalUse(openClinicalSummary); return; } setSummaryDraft(draft.resumenCaso || ''); setSummaryOpen(true); };
   const saveClinicalSummary = () => {
     const savedDraft = withHistorySnapshot({ ...draft, resumenCaso: summaryDraft, updatedAt: new Date().toISOString() });
     const next = { ...registry, [selectedCode]: savedDraft };
@@ -1425,6 +1453,7 @@ function VistaHospitalizados() {
       prevision: sourceDraft.prevision, diagnostico: sourceDraft.diagnosticoPrincipal || sourceDraft.diagnostico, diagnostico_principal: sourceDraft.diagnosticoPrincipal, diagnostico_desglose: sourceDraft.diagnostico, n_ficha: sourceDraft.nFicha,
       aislamiento: sourceDraft.aislamiento, clinical_text: sourceDraft.resumenCaso || '', resumen_caso: sourceDraft.resumenCaso || '', antecedentes_relevantes: sourceDraft.antecedentes || '', antecedentes: sourceDraft.antecedentes || '',
       edad: sourceDraft.edad, sexo: sourceDraft.sexo, fecha_ingreso: sourceDraft.fechaIngreso, proa_antibioticos: sourceDraft.antibioticos || [], proa_examenes: sourceDraft.laboratorios || [], ultimo_laboratorio: sourceDraft.ultimoLaboratorio || '',
+      diabetes_evaluado: sourceDraft.diabetesEvaluado === true, diabetes: sourceDraft.diabetes === true, diabetes_evaluado_en: sourceDraft.diabetesEvaluadoEn || '',
       servicio: selectedBed?.serviceShort || '', unidad: selectedBed?.salaLabel || '', cama: selectedBed?.cell || selectedBed?.code || '',
       sala_cama: [selectedBed?.serviceShort, selectedBed?.salaLabel, selectedBed?.cell && `Cama ${selectedBed.cell}`].filter(Boolean).join(' · '),
       ubicacion: [selectedBed?.serviceShort, selectedBed?.salaLabel, selectedBed?.cell && `Cama ${selectedBed.cell}`].filter(Boolean).join(' · '),
@@ -1434,13 +1463,14 @@ function VistaHospitalizados() {
     return data;
   };
 
-  const requestFirstClinicalUse = async (action) => {
-    if (draft.reingresoEvaluado) { action(); return; }
+  const requestReadmissionCheck = async (action, sourceDraft = draft) => {
+    if (sourceDraft.reingresoEvaluado) { action(sourceDraft); return; }
     pendingClinicalAction.current = action;
-    let previousDischargeDate = draft.egresoPrevioConocido || '';
-    if (!previousDischargeDate && draft.rut) {
+    pendingClinicalDraft.current = sourceDraft;
+    let previousDischargeDate = sourceDraft.egresoPrevioConocido || '';
+    if (!previousDischargeDate && sourceDraft.rut) {
       try {
-        const normalizedRut = String(draft.rut).replace(/[^0-9k]/gi, '').toUpperCase();
+        const normalizedRut = String(sourceDraft.rut).replace(/[^0-9k]/gi, '').toUpperCase();
         const records = await fetchProaRecords();
         previousDischargeDate = records
           .filter(record => isHistoricalProaRecord(record))
@@ -1450,7 +1480,7 @@ function VistaHospitalizados() {
           .sort().at(-1) || '';
       } catch { /* Permite confirmar manualmente si el histórico remoto no está disponible. */ }
     }
-    const admission = draft.fechaIngreso ? new Date(`${draft.fechaIngreso}T00:00:00`) : new Date();
+    const admission = sourceDraft.fechaIngreso ? new Date(`${sourceDraft.fechaIngreso}T00:00:00`) : new Date();
     const previous = previousDischargeDate ? new Date(`${previousDischargeDate}T00:00:00`) : null;
     const elapsedDays = previous && !Number.isNaN(previous.getTime()) ? Math.floor((admission.getTime() - previous.getTime()) / 86400000) : null;
     const detected = elapsedDays !== null && elapsedDays >= 0 && elapsedDays <= 30;
@@ -1458,11 +1488,38 @@ function VistaHospitalizados() {
     setReadmissionOpen(true);
   };
 
+  const requestFirstClinicalUse = async (action) => {
+    if (!draft.diabetesEvaluado) {
+      pendingClinicalAction.current = action;
+      setDiabetesChoice('');
+      setDiabetesOpen(true);
+      return;
+    }
+    requestReadmissionCheck(action, draft);
+  };
+
+  const confirmDiabetes = async () => {
+    if (!diabetesChoice) return;
+    const now = new Date().toISOString();
+    const savedDraft = { ...draft, diabetesEvaluado: true, diabetes: diabetesChoice === 'Sí', diabetesEvaluadoEn: now, updatedAt: now };
+    const next = { ...registry, [selectedCode]: savedDraft };
+    setDraft(savedDraft); setRegistry(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    if (savedDraft.proaRecordId) {
+      try {
+        const records = await fetchProaRecords(); const latest = getLatestProaForm(records.find(item => item.id === savedDraft.proaRecordId)) || {};
+        await saveProaRecord({ ...latest, diabetes_evaluado: true, diabetes: savedDraft.diabetes, diabetes_evaluado_en: now, fecha: todayLocalIso(), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'verificacion_diabetes' });
+      } catch { /* La respuesta queda local para no volver a solicitarla. */ }
+    }
+    setDiabetesOpen(false);
+    const action = pendingClinicalAction.current; pendingClinicalAction.current = null;
+    requestReadmissionCheck(action, savedDraft);
+  };
+
   const confirmReadmission = async () => {
     if (!readmissionDraft.value) return;
     const now = new Date().toISOString();
     const savedDraft = {
-      ...draft,
+      ...(pendingClinicalDraft.current || draft),
       reingresoEvaluado: true,
       reingresoMenor30: readmissionDraft.value === 'Sí',
       reingresoFechaEgresoPrevia: readmissionDraft.value === 'Sí' ? readmissionDraft.previousDischargeDate : '',
@@ -1488,7 +1545,7 @@ function VistaHospitalizados() {
       } catch { /* La copia local evita repetir la pregunta aunque falle temporalmente la sincronización. */ }
     }
     setReadmissionOpen(false);
-    const action = pendingClinicalAction.current; pendingClinicalAction.current = null;
+    const action = pendingClinicalAction.current; pendingClinicalAction.current = null; pendingClinicalDraft.current = null;
     action?.(savedDraft);
   };
 
@@ -1653,6 +1710,10 @@ function VistaHospitalizados() {
     setProaOpen(true);
   };
   const openStudiesChecked = () => requestFirstClinicalUse(openStudies);
+  const openGeneralChecked = () => requestFirstClinicalUse(openGeneral);
+  const openLatestEvolutionChecked = () => requestFirstClinicalUse(openLatestEvolution);
+  const openPlansChecked = () => requestFirstClinicalUse(openPlans);
+  const openClinicalSummaryChecked = () => requestFirstClinicalUse(openClinicalSummary);
   const openProaChecked = () => requestFirstClinicalUse(openProaPopup);
   const openLabChecked = () => requestFirstClinicalUse(() => { setLabWorkspaceTab('registro'); setLabRows(Array.isArray(draft.laboratorios) && draft.laboratorios.length ? mergeLaboratoryRows([], draft.laboratorios) : [emptyLabRow()]); setLabCultures(Array.isArray(draft.cultivos) ? draft.cultivos : []); setLabPasteText(''); setLabParseMessage(''); setLabOpen(true); });
   const openMicroChecked = () => requestFirstClinicalUse(() => { setLabCultures(Array.isArray(draft.cultivos) && draft.cultivos.length ? draft.cultivos : [{ ...EMPTY_CULTURE }]); setMicroOpen(true); });
@@ -1671,6 +1732,7 @@ function VistaHospitalizados() {
         const cultures = proaQuick.cultivos.filter(item => item.fecha || item.tipo_muestra || item.patogeno);
         const created = await saveProaPreAdmission({
           paciente: proaQuick.paciente, rut: proaQuick.rut, edad: proaQuick.edad, sexo: proaQuick.sexo,
+          diabetes_evaluado: draft.diabetesEvaluado === true, diabetes: draft.diabetes === true, diabetes_evaluado_en: draft.diabetesEvaluadoEn || '',
           fecha_ingreso: proaQuick.fecha_ingreso, diagnostico: proaQuick.diagnostico,
           diagnosticos: [proaQuick.diagnostico].filter(Boolean), servicio: selectedBed?.serviceShort || '', proa_is_test: selectedBed?.code === TEST_BED.code,
           cama: catalogToProaBed(selectedBed) || selectedBed?.code || '', antibioticos: antibiotics, cultivos: cultures,
@@ -1693,7 +1755,7 @@ function VistaHospitalizados() {
       const antibiotics = proaQuick.antibioticos.filter(item => item.nombre);
       const antibioticText = structuredAntibioticSummary(antibiotics);
       const storedProaForm = {
-        ...latest, aislamiento: proaQuick.aislamiento, evolucion: proaQuick.evolucion, vista_ultima_evolucion: proaQuick.evolucion, resumen_caso: proaQuick.resumen_caso, estudios_imagen: proaQuick.estudios_imagen, plan_duracion: proaQuick.plan_duracion, parametros_inflamatorios: proaQuick.examenes_sangre.filter(item => Object.entries(item).some(([key,value]) => key !== 'fecha' && value)), examenes_complementarios: proaQuick.examenes_complementarios.filter(item => item.fecha || item.nombre || item.resultado), antibioticos: antibiotics, antibioticos_eliminados: proaQuick.antibioticos_eliminados || [], antibioterapia_preingreso: antibioticText,
+        ...latest, diabetes_evaluado: draft.diabetesEvaluado === true, diabetes: draft.diabetes === true, diabetes_evaluado_en: draft.diabetesEvaluadoEn || latest.diabetes_evaluado_en || '', aislamiento: proaQuick.aislamiento, evolucion: proaQuick.evolucion, vista_ultima_evolucion: proaQuick.evolucion, resumen_caso: proaQuick.resumen_caso, estudios_imagen: proaQuick.estudios_imagen, plan_duracion: proaQuick.plan_duracion, parametros_inflamatorios: proaQuick.examenes_sangre.filter(item => Object.entries(item).some(([key,value]) => key !== 'fecha' && value)), examenes_complementarios: proaQuick.examenes_complementarios.filter(item => item.fecha || item.nombre || item.resultado), antibioticos: antibiotics, antibioticos_eliminados: proaQuick.antibioticos_eliminados || [], antibioterapia_preingreso: antibioticText,
         estudios_micro: cultures, diagnostico_microbiologico: cultures.map(item => item.patogeno).filter(value => value && !isNegativeMicroResult(value)).join(', '),
         fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_vista_general',
       };
@@ -1753,17 +1815,18 @@ function VistaHospitalizados() {
           <Button type="button" variant="outline" onClick={() => { setSelectedCode(''); sessionStorage.removeItem(SELECTED_BED_KEY); }} className="gap-2"><ChevronLeft className="h-4 w-4" />Volver a camas</Button>
           <section className={`border border-slate-200 bg-white p-5 shadow-sm ${patientViewTab === 'documents' && detailsOpen ? 'rounded-t-2xl rounded-b-none pb-0' : 'rounded-2xl'}`}>
             <div className={`flex flex-wrap items-start justify-between gap-3 ${detailsOpen ? 'mb-4' : ''}`}><div><p className="text-xs font-bold uppercase tracking-wider text-teal-700">{selectedBed.serviceShort} · {selectedBed.salaLabel}</p><h2 className="text-2xl font-black text-slate-950">Cama {selectedBed.cell}</h2>{draft.nombre && <p className="flex flex-wrap items-center gap-1.5 font-bold text-slate-800">{draft.nombre} {draft.rut && <span className="font-normal text-slate-500">· {draft.rut}</span>}{draft.edad && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-800 ring-1 ring-sky-200">{draft.edad} años</span>}{draft.pacienteSocial && <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-800"><HeartHandshake className="h-3 w-3" />Paciente social</span>}</p>}{occupied && <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold text-emerald-700">Ingreso {draft.fechaIngreso || 'sin fecha'} · Día {hospitalDays(draft.fechaIngreso)}</p>{draft.reingresoEvaluado && <span title={draft.reingresoEvaluadoEn ? `Verificado el ${displayClinicalDate(String(draft.reingresoEvaluadoEn).slice(0, 10))}` : 'Verificación registrada'} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${draft.reingresoMenor30 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-500'}`}>{draft.reingresoMenor30 ? 'Reingreso &lt;30 días' : 'No reingreso &lt;30 días'}</span>}</div>}</div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setDetailsOpen(open => !open)} className="gap-2">{detailsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}{detailsOpen ? 'Ocultar ficha' : 'Ver ficha'}</Button><Button type="button" variant="outline" onClick={saveAllChanges} disabled={savingAll || !occupied} className="gap-2 border-emerald-300 bg-emerald-50 font-bold text-emerald-800 hover:bg-emerald-100"><Save className="h-4 w-4" />{savingAll ? 'Guardando…' : saved ? 'Cambios guardados' : 'Guardar todos los cambios'}</Button>{['MQ1', 'MQ2'].includes(selectedBed.serviceShort) && <Button type="button" variant="outline" onClick={() => openAction('FormulariosHODOM')} disabled={!occupied} className="gap-2 border-indigo-300 bg-indigo-50 font-bold text-indigo-800 hover:bg-indigo-100"><LogOut className="h-4 w-4" />Derivar a HODOM</Button>}<Button type="button" variant="outline" onClick={openDischarge} disabled={!occupied} className="gap-2 border-red-300 bg-red-50 font-bold text-red-700 hover:bg-red-100"><LogOut className="h-4 w-4" />Egresar paciente</Button><Button onClick={openGeneral} className="gap-2 bg-teal-700 hover:bg-teal-800"><ClipboardList className="h-4 w-4" />Editar ficha general</Button></div></div>
+            {occupied && <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Pendientes esenciales del paciente">{essentialStatusLabels.map(label => <span key={label.key} className={`rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${label.style}`}>{label.text}</span>)}</div>}
             {detailsOpen && <>
             <nav className={`${patientViewTab === 'documents' ? 'mb-0' : 'mb-5'} flex gap-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1.5`} aria-label="Secciones de la ficha">{[['clinical','Información clínica',ClipboardList,'bg-sky-50 text-sky-800'],['exams','Exámenes y calculadoras',FlaskConical,'bg-cyan-50 text-cyan-800'],['proa','PROA',ShieldCheck,'bg-emerald-50 text-emerald-800'],['documents','Documentos y solicitudes',FileText,'bg-indigo-50 text-indigo-800'],['evolutions','Evoluciones',Activity,'bg-violet-50 text-violet-800']].map(([key,label,Icon,color]) => <button key={key} type="button" onClick={() => setPatientViewTab(key)} className={`flex h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-bold transition sm:px-4 ${patientViewTab === key ? 'bg-teal-700 text-white shadow-sm' : `${color} hover:brightness-95`}`}><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${patientViewTab === key ? 'bg-white/15' : 'bg-white/65'}`}><Icon className="h-4 w-4 stroke-[2]" /></span><span>{label}</span></button>)}</nav>
             <style>{`.patient-access-grid>section{display:none}.patient-access-grid[data-tab="clinical"]>section:nth-child(1),.patient-access-grid[data-tab="clinical"]>section:nth-child(4),.patient-access-grid[data-tab="clinical"]>section:nth-child(5),.patient-access-grid[data-tab="exams"]>section:nth-child(2){display:block}.patient-clinical-details>div:has(textarea[placeholder="Sin antibioterapia registrada en PROA"]){display:none}`}</style>
             {draft.reingresoMenor30 && <div className="mb-4 flex items-start gap-2 rounded-xl border-2 border-orange-300 bg-orange-50 p-3 text-orange-950 shadow-sm"><Activity className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" /><div><p className="text-sm font-black">Segundo ingreso en menos de 30 días</p><p className="text-xs text-orange-800">Reingreso marcado{draft.reingresoFechaEgresoPrevia ? ` · egreso previo: ${displayClinicalDate(draft.reingresoFechaEgresoPrevia)}` : ''}.</p></div></div>}
             <div className={`patient-access-grid mb-5 grid gap-3 ${patientViewTab === 'clinical' ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`} data-tab={patientViewTab}>
               <section className="rounded-xl border border-sky-200 bg-sky-50/50 p-3"><p className="mb-2 text-[10px] font-black uppercase tracking-wider text-sky-800">Clínica y evolución</p><div className="flex flex-wrap gap-2">
-                <ExpandIconButton icon={ClipboardList} label="Actualización clínica" onClick={openGeneral} className="border-sky-200 bg-white text-sky-700 hover:bg-sky-50" />
+                <ExpandIconButton icon={ClipboardList} label="Actualización clínica" onClick={openGeneralChecked} className="border-sky-200 bg-white text-sky-700 hover:bg-sky-50" />
                 <ExpandIconButton icon={FileText} label="Resumen clínico" onClick={openClinicalSummary} className="border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50" />
                 <ExpandIconButton icon={Activity} label="Estado clínico" title={`Estado clínico actual: ${clinicalStateStatus.detail}`} onClick={openLatestEvolution} className={`relative ${CLINICAL_STATE_BUTTON_STYLES[clinicalStateStatus.state]}`}><span aria-hidden="true" className={`absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white ${clinicalStateStatus.state === 'current' ? 'bg-emerald-500' : clinicalStateStatus.state === 'stale' ? 'bg-rose-500' : 'bg-amber-400'}`} /><span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-max max-w-72 -translate-x-1/2 whitespace-normal rounded-lg bg-slate-950 px-3 py-2 text-left text-[10px] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-visible:opacity-100">{String(draft.ultimaEvolucion || '').trim() ? <>Última evolución · {clinicalStateStatus.label}{clinicalStateStatus.date ? ` · ${shortClinicalDate(clinicalStateStatus.date)}` : ''}<span className="mt-1 line-clamp-5 block font-normal text-slate-200">{draft.ultimaEvolucion}</span></> : 'Sin evolución registrada'}</span></ExpandIconButton>
                 <ExpandIconButton icon={Pencil} label="Nota de evolución" onClick={() => openAction('NotaEvolucion')} className="border-violet-200 bg-white text-violet-700 hover:bg-violet-50" />
-                <ExpandIconButton icon={ClipboardList} label="Planes" onClick={openPlans} className="border-amber-200 bg-white text-amber-700 hover:bg-amber-50" />
+                <ExpandIconButton icon={ClipboardList} label="Planes" onClick={openPlansChecked} className="border-amber-200 bg-white text-amber-700 hover:bg-amber-50" />
               </div></section>
               <section className="lg:col-span-2"><div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-4">
@@ -1842,7 +1905,8 @@ function VistaHospitalizados() {
     {activeTab === 'estadistica' && <StatisticsDashboard statistics={statistics} />}
     <HospitalCareDocuments open={careDocumentOpen} patient={draft} bed={selectedBed} onClose={() => setCareDocumentOpen(false)} />
     <HospitalMedicalReports open={medicalReportsOpen} patient={draft} bed={selectedBed} reports={draft.informesMedicos || []} onSave={saveMedicalReport} onClose={() => setMedicalReportsOpen(false)} />
-    {readmissionOpen && <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"><div className="w-full max-w-xl overflow-hidden rounded-2xl border border-orange-300 bg-gradient-to-br from-orange-50 via-white to-amber-50 shadow-2xl"><div className="border-b border-orange-200 bg-orange-100/80 px-5 py-4"><h2 className="text-lg font-black text-orange-950">Verificación de reingreso</h2><p className="text-xs text-orange-800">Se registra una sola vez antes del primer uso clínico del paciente.</p></div><div className="space-y-4 p-5">{readmissionDraft.detected && <div className="rounded-xl border border-orange-300 bg-orange-100 p-3 text-sm font-semibold text-orange-950"><Activity className="mr-2 inline h-4 w-4" />Antecedente detectado automáticamente: egreso el {displayClinicalDate(readmissionDraft.previousDischargeDate)}, dentro de los 30 días previos al ingreso actual.</div>}<Field label="¿El paciente ha tenido un ingreso hospitalario en los últimos 30 días?"><select className={input} value={readmissionDraft.value} onChange={e => setReadmissionDraft(old => ({ ...old, value: e.target.value, detected: old.detected && e.target.value === 'Sí' }))}><option value="">Seleccionar…</option><option value="Sí">Sí</option><option value="No">No</option></select></Field>{readmissionDraft.value === 'Sí' && <Field label="Fecha de egreso anterior (si se conoce)"><input type="date" className={input} value={readmissionDraft.previousDischargeDate} onChange={e => setReadmissionDraft(old => ({ ...old, previousDischargeDate: e.target.value }))} /></Field>}<p className="text-xs text-slate-500">Si marcas “Sí”, la ficha mostrará una alerta de “Segundo ingreso en menos de 30 días”.</p></div><div className="flex justify-end gap-2 border-t border-orange-200 bg-white/80 px-5 py-4"><Button variant="outline" onClick={() => { pendingClinicalAction.current = null; setReadmissionOpen(false); }}>Cancelar</Button><Button onClick={confirmReadmission} disabled={!readmissionDraft.value} className="bg-orange-600 hover:bg-orange-700">Guardar y continuar</Button></div></div></div>}
+    {diabetesOpen && <div className="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"><div className="w-full max-w-lg overflow-hidden rounded-2xl border border-sky-300 bg-white shadow-2xl"><div className="border-b border-sky-200 bg-sky-50 px-5 py-4"><h2 className="text-lg font-black text-sky-950">Dato clínico inicial obligatorio</h2><p className="text-xs text-sky-800">Se solicita una sola vez, antes de la primera actualización clínica o atención PROA.</p></div><div className="space-y-4 p-5"><p className="font-bold text-slate-900">¿El paciente es diabético?</p><div className="grid grid-cols-2 gap-3">{['Sí', 'No'].map(value => <button key={value} type="button" onClick={() => setDiabetesChoice(value)} className={`rounded-xl border-2 px-4 py-4 text-base font-black transition ${diabetesChoice === value ? value === 'Sí' ? 'border-sky-500 bg-sky-100 text-sky-950' : 'border-slate-500 bg-slate-100 text-slate-950' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300'}`}>{value}</button>)}</div><p className="text-xs text-slate-500">La respuesta quedará guardada en la ficha y no se volverá a preguntar. Si es diabético, se mostrará el estado del protocolo insulínico.</p></div><div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4"><Button variant="outline" onClick={() => { pendingClinicalAction.current = null; setDiabetesOpen(false); }}>Cancelar</Button><Button onClick={confirmDiabetes} disabled={!diabetesChoice} className="bg-sky-700 hover:bg-sky-800">Guardar y continuar</Button></div></div></div>}
+    {readmissionOpen && <div className="fixed inset-0 z-[96] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm"><div className="w-full max-w-xl overflow-hidden rounded-2xl border border-orange-300 bg-gradient-to-br from-orange-50 via-white to-amber-50 shadow-2xl"><div className="border-b border-orange-200 bg-orange-100/80 px-5 py-4"><h2 className="text-lg font-black text-orange-950">Verificación de reingreso</h2><p className="text-xs text-orange-800">Se registra una sola vez antes del primer uso clínico del paciente.</p></div><div className="space-y-4 p-5">{readmissionDraft.detected && <div className="rounded-xl border border-orange-300 bg-orange-100 p-3 text-sm font-semibold text-orange-950"><Activity className="mr-2 inline h-4 w-4" />Antecedente detectado automáticamente: egreso el {displayClinicalDate(readmissionDraft.previousDischargeDate)}, dentro de los 30 días previos al ingreso actual.</div>}<Field label="¿El paciente ha tenido un ingreso hospitalario en los últimos 30 días?"><select className={input} value={readmissionDraft.value} onChange={e => setReadmissionDraft(old => ({ ...old, value: e.target.value, detected: old.detected && e.target.value === 'Sí' }))}><option value="">Seleccionar…</option><option value="Sí">Sí</option><option value="No">No</option></select></Field>{readmissionDraft.value === 'Sí' && <Field label="Fecha de egreso anterior (si se conoce)"><input type="date" className={input} value={readmissionDraft.previousDischargeDate} onChange={e => setReadmissionDraft(old => ({ ...old, previousDischargeDate: e.target.value }))} /></Field>}<p className="text-xs text-slate-500">Si marcas “Sí”, la ficha mostrará una alerta de “Segundo ingreso en menos de 30 días”.</p></div><div className="flex justify-end gap-2 border-t border-orange-200 bg-white/80 px-5 py-4"><Button variant="outline" onClick={() => { pendingClinicalAction.current = null; pendingClinicalDraft.current = null; setReadmissionOpen(false); }}>Cancelar</Button><Button onClick={confirmReadmission} disabled={!readmissionDraft.value} className="bg-orange-600 hover:bg-orange-700">Guardar y continuar</Button></div></div></div>}
     {dischargeOpen && <div className="fixed inset-0 z-[92] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm">
       <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-red-200 bg-gradient-to-br from-red-50 via-white to-amber-50 shadow-2xl">
         <div className="border-b border-red-200 bg-red-100/80 px-5 py-4"><h2 className="text-lg font-black text-red-950">Egresar paciente — {draft.nombre || selectedBed?.cell}</h2><p className="text-xs text-red-700">La ficha se conservará como histórica y la cama quedará libre.</p></div>

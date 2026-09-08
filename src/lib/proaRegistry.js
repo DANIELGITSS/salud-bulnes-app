@@ -16,6 +16,7 @@ export function sanitizeProaRecord(form) {
   sanitized.n_ficha = '';
   delete sanitized.__proaRegistryMode;
   delete sanitized.__proaEditLatest;
+  delete sanitized.__diabetesPreviouslyRecorded;
   return sanitized;
 }
 
@@ -226,6 +227,9 @@ export async function saveProaPreAdmission(preAdmission) {
     rut: preAdmission.rut || '',
     edad: preAdmission.edad || '',
     sexo: preAdmission.sexo || '',
+    diabetes_evaluado: preAdmission.diabetes_evaluado === true,
+    diabetes: preAdmission.diabetes_evaluado === true ? preAdmission.diabetes === true : null,
+    diabetes_evaluado_en: preAdmission.diabetes_evaluado_en || '',
     fecha_nacimiento: preAdmission.fecha_nacimiento || '',
     direccion: preAdmission.direccion || '',
     comuna: preAdmission.comuna || '',
