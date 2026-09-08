@@ -32,6 +32,7 @@ import PSFSCalculator from '@/components/calculators/PSFSCalculator';
 import PECARNCalculator from '@/components/calculators/PECARNCalculator';
 import ProceduralSedoanalgesiaCalculator from '@/components/calculators/ProceduralSedoanalgesiaCalculator';
 import AntidepressantSwitchCalculator from '@/components/calculators/AntidepressantSwitchCalculator';
+import MoriskyCalculator from '@/components/calculators/MoriskyCalculator';
 
 export const calculatorsByCategory = {
   'Urgencias': [
@@ -49,7 +50,8 @@ export const calculatorsByCategory = {
   'Cardiología': [
     { id: 'heart', name: 'HEART Score', component: HEARTScoreCalculator, icon: Heart },
     { id: 'cha2ds2vasc', name: 'CHA₂DS₂-VASc — Riesgo de ACV en FA', component: CHA2DS2VAScCalculator, icon: Heart },
-    { id: 'has-bled', name: 'HAS-BLED — Riesgo de Sangrado', component: HASBLEDCalculator, icon: ShieldAlert }
+    { id: 'has-bled', name: 'HAS-BLED — Riesgo de Sangrado', component: HASBLEDCalculator, icon: ShieldAlert },
+    { id: 'morisky-mmas8', name: 'Morisky MMAS-8 — Adherencia a tratamiento', component: MoriskyCalculator, icon: Pill }
   ],
   'Neurología': [
     { id: 'nihss', name: 'NIHSS - Escala ACV', component: NIHSSCalculator, icon: Brain },

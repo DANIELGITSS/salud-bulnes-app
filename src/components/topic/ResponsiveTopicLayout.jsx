@@ -24,6 +24,7 @@ import FibromyalgiaACRCalculator from '@/components/calculators/FibromyalgiaACRC
 import FIQRCalculator from '@/components/calculators/FIQRCalculator';
 import PSFSCalculator from '@/components/calculators/PSFSCalculator';
 import ProceduralSedoanalgesiaCalculator from '@/components/calculators/ProceduralSedoanalgesiaCalculator';
+import HeartsPathway, { HeartsTreatmentLadder } from './HeartsPathway';
 
 // Renders text with inline clickable links for patterns defined in block.links.
 // block.links value can be:
@@ -798,6 +799,12 @@ export default function ResponsiveTopicLayout({ blocks = [], layoutMode = 'auto'
       case 'procedural_sedoanalgesia_calculator':
         return <ProceduralSedoanalgesiaCalculator key={block.id} />;
 
+      case 'hearts_pathway':
+        return <HeartsPathway key={block.id} />;
+
+      case 'hearts_ladder':
+        return <HeartsTreatmentLadder key={block.id} />;
+
       case 'image_gallery':
         return <ImageGalleryBlock key={block.id} block={block} />;
 
@@ -1554,6 +1561,16 @@ export default function ResponsiveTopicLayout({ blocks = [], layoutMode = 'auto'
     fimo_familia: 'Familia',
     fimo_aplicacion: 'Aplicación',
     fimo_alarmas: 'Alarmas',
+    hta_local: 'Protocolo local',
+    hta_local_ingreso: 'Ingreso PSCV',
+    hta_local_elegibilidad: 'Elegibilidad',
+    hta_local_examenes: 'Exámenes iniciales',
+    hta_local_seguimiento: 'Seguimiento',
+    hta_escalera: 'Escalera HEARTS',
+    hta_ruta: 'Ruta interactiva',
+    hta_flujo: 'Flujograma',
+    hta_cotejo: 'Pauta de cotejo',
+    hta_referencias: 'Referencias',
   };
 
   // Protocol header blocks are pinned above the tab switcher (visible across all tabs)
