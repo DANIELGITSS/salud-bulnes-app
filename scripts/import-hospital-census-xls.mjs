@@ -37,6 +37,10 @@ const ageAt = (birthDate, at = new Date()) => {
 function bedFor(row) {
   const room = row.Sala.match(/\d+/)?.[0];
   const bed = row.Cama.replace(/^0+/, '') || '0';
+  if (row.Servicio === 'HODOM') {
+    const slot = row.Cama.match(/(\d+)/)?.[1];
+    return slot ? `HD-${Number(slot)}` : '';
+  }
   if (row.Servicio === 'MATHB') return row.Sala.includes('OBSTETRICIA') ? `OBS-${bed}` : `GINE-${bed}`;
   if (row.Servicio === 'MQMCHB') {
     if (row.Sala === 'SALA 5') return 'MQ2-Aislamiento 1';
@@ -57,7 +61,7 @@ function bedFor(row) {
   return '';
 }
 
-const serviceFor = (row) => row.Servicio === 'MQMCHB' ? 'MQ2' : row.Servicio === 'MQHB' ? 'MQ1' : row.Servicio === 'PEDHB' ? 'Pediatría' : 'Ginecología Obstetricia';
+const serviceFor = (row) => row.Servicio === 'MQMCHB' ? 'MQ2' : row.Servicio === 'MQHB' ? 'MQ1' : row.Servicio === 'PEDHB' ? 'Pediatría' : row.Servicio === 'HODOM' ? 'Hospitalización domiciliaria' : 'Ginecología Obstetricia';
 const html = await fs.readFile(sourcePath, 'utf8');
 const rawRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)].map((match) => [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => repairEncoding(clean(cell[1]))));
 const headers = rawRows.shift();
@@ -127,7 +131,11 @@ for (const candidate of candidates) {
 
 const summary = actions.reduce((counts, item) => ({ ...counts, [item.type]: (counts[item.type] || 0) + 1 }), {});
 const referencedCurrentIds = new Set(actions.map((item) => item.row?.id).filter(Boolean));
-const notInCensusRows = activeRows.filter((row) => !referencedCurrentIds.has(row.id) && !/^(?:TEST|HD-)/i.test(row.bed_code || ''));
+// Hospitalización domiciliaria solo se da de alta cuando el censo la incluye;
+// un export sin HODOM no debe vaciar esas camas.
+const censusHasHodom = candidates.some((item) => item.bed.startsWith('HD-'));
+const exempt = censusHasHodom ? /^TEST/i : /^(?:TEST|HD-)/i;
+const notInCensusRows = activeRows.filter((row) => !referencedCurrentIds.has(row.id) && !exempt.test(row.bed_code || ''));
 const notInCensus = notInCensusRows.map((row) => ({
   bed: row.bed_code,
   patient: row.evolutions?.[0]?.form?.paciente || '',
@@ -190,11 +198,16 @@ for (const row of notInCensusRows) {
   await archive(row, 'Paciente ausente del nuevo censo hospitalario');
 }
 
+// activeRows es la foto previa al import: un traslado en cadena (A toma la cama
+// de B mientras B se va a otra) dejaría al ocupante anterior marcado como
+// reemplazado aunque siga en el censo. Solo se archiva a quien no se reubica.
+const relocatedIds = new Set(actions.filter((item) => item.type === 'move').map((item) => item.row.id));
+
 for (const action of actions) {
   if (action.type === 'replace') await archive(action.row, 'Reemplazo confirmado por nuevo censo hospitalario');
   if (action.type === 'move') {
     const target = activeRows.find((row) => row.bed_code === action.target && row.id !== action.row.id);
-    if (target) await archive(target, 'Reemplazo confirmado por traslado en nuevo censo hospitalario');
+    if (target && !relocatedIds.has(target.id)) await archive(target, 'Reemplazo confirmado por traslado en nuevo censo hospitalario');
     const { error } = await supabase.from('proa_records').delete().eq('id', action.row.id);
     if (error) throw error;
   }
