@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bed, ChevronLeft, Eye, Printer, RotateCcw, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { createPageUrl } from '@/utils';
 import { formatRut } from '@/lib/rut-ges';
 import { getMultiPrefill } from '@/lib/multiTemplatePrefill';
 import { PROA_BED_MAP } from '@/lib/hospitalSuggestions';
+import { parseLabReportText } from '@/pages/CurvaExamenes';
 import { fetchProaRecords, getLatestProaForm, readProaRegistry, saveProaRecord } from '@/lib/proaRegistry';
 import FirmaDigital from '@/components/ges/FirmaDigital';
 
@@ -35,6 +36,68 @@ function formatDateTime(value) {
   }).format(date).replace(',', '');
 }
 
+const emptyRow = () => ({ tipo: '', resultado: '' });
+
+// Sugerencias que se ofrecen mientras se escribe; el campo acepta texto libre.
+const IMAGEN_OPCIONES = [
+  'Radiografía de tórax', 'Radiografía de abdomen simple', 'Radiografía de pelvis', 'Radiografía de extremidad',
+  'TAC de cerebro sin contraste', 'TAC de tórax', 'TAC de abdomen y pelvis', 'AngioTAC de tórax', 'AngioTAC de cerebro',
+  'Ecografía abdominal', 'Ecografía renal y vesical', 'Ecografía de partes blandas', 'Ecografía Doppler de extremidades inferiores',
+  'Ecocardiograma transtorácico', 'Resonancia magnética de cerebro', 'Resonancia magnética de columna', 'Cintigrama óseo',
+];
+
+const OTROS_EXAMEN_OPCIONES = [
+  'Electrocardiograma', 'Espirometría', 'Endoscopía digestiva alta (EDA)', 'Colonoscopía', 'Holter de ritmo',
+  'Holter de presión arterial', 'Electroencefalograma', 'Electromiografía', 'Test de marcha de 6 minutos',
+  'Polisomnografía', 'Fondo de ojo', 'Biopsia', 'Estudio urodinámico', 'Test de esfuerzo',
+];
+
+const filledRows = rows => (Array.isArray(rows) ? rows : []).filter(row => row.tipo.trim() || row.resultado.trim());
+
+const rowsToLines = rows => filledRows(rows).map(row => {
+  const tipo = row.tipo.trim();
+  const resultado = row.resultado.trim();
+  if (tipo && resultado) return `${tipo}: ${resultado}`;
+  return tipo || resultado;
+});
+
+// Bloques de exámenes complementarios que tienen contenido. Los vacíos no se
+// imprimen ni se guardan.
+function complementaryBlocks(form) {
+  const blocks = [];
+  if (form.laboratorio.trim()) blocks.push({ label: 'Laboratorio', lines: [form.laboratorio.trim()] });
+  const imagenes = rowsToLines(form.imagenes);
+  if (imagenes.length) blocks.push({ label: 'Imagenología', lines: imagenes });
+  const otros = rowsToLines(form.otrosExamenes);
+  if (otros.length) blocks.push({ label: 'Otros exámenes', lines: otros });
+  return blocks;
+}
+
+const complementaryText = form => complementaryBlocks(form)
+  .map(block => `${block.label}:\n${block.lines.join('\n')}`)
+  .join('\n\n');
+
+// Resume lo que devuelve el parser de Curva de exámenes en líneas por fecha,
+// para dejarlas como texto editable en la nota.
+function summarizeParsedLabs(results) {
+  const porFecha = new Map();
+  const microbiologia = [];
+  results.forEach(item => {
+    if (item.category === 'Microbiología') {
+      if (item.valueText) microbiologia.push(`${item.name}: ${item.valueText}`);
+      return;
+    }
+    if (item.value == null || item.value === '') return;
+    const fecha = String(item.collectedAt || '').slice(0, 10);
+    const linea = `${item.name} ${item.value}${item.unit ? ` ${item.unit}` : ''}`;
+    porFecha.set(fecha, [...(porFecha.get(fecha) || []), linea]);
+  });
+  const lineas = [...porFecha.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([fecha, valores]) => `${fecha ? `${fecha} — ` : ''}${valores.join(' · ')}`);
+  return { lineas: [...lineas, ...microbiologia], total: results.length };
+}
+
 const emptyForm = () => ({
   pacienteNombre: '',
   pacienteRut: '',
@@ -42,6 +105,9 @@ const emptyForm = () => ({
   diagnostico: '',
   anamnesis: '',
   examenFisico: '',
+  laboratorio: '',
+  imagenes: [emptyRow()],
+  otrosExamenes: [emptyRow()],
   indicaciones: '',
   medico: '',
   firma: '',
@@ -58,6 +124,47 @@ const SECTIONS = [
   { key: 'indicaciones', label: 'Indicaciones', placeholder: 'Plan e indicaciones médicas…' },
 ];
 
+// Tipo de examen a la izquierda (con sugerencias, pero admite texto libre) y
+// el resultado a la derecha.
+function ExamRowsEditor({ title, listId, options, tipoPlaceholder, rows, onChange, onAdd, onRemove }) {
+  return (
+    <div className="mt-5 space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
+      <datalist id={listId}>
+        {options.map(option => <option key={option} value={option} />)}
+      </datalist>
+      {rows.map((row, index) => (
+        <div key={index} className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
+          <Input
+            value={row.tipo}
+            onChange={e => onChange(index, 'tipo', e.target.value)}
+            list={listId}
+            placeholder={tipoPlaceholder}
+            className="sm:w-72"
+          />
+          <Textarea
+            value={row.resultado}
+            onChange={e => onChange(index, 'resultado', e.target.value)}
+            placeholder="Resultado…"
+            className="min-h-10 flex-1 resize-y font-sans text-sm leading-6"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onRemove(index)}
+            className="shrink-0 text-slate-400 hover:text-red-600"
+            aria-label={`Quitar ${title.toLowerCase()} ${index + 1}`}
+          >
+            Quitar
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={onAdd}>Agregar {title.toLowerCase()}</Button>
+    </div>
+  );
+}
+
 export default function NotaEvolucion() {
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyForm);
@@ -68,7 +175,41 @@ export default function NotaEvolucion() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [fromVistaGeneral, setFromVistaGeneral] = useState(false);
+  const [labPaste, setLabPaste] = useState('');
+  const [labParseMessage, setLabParseMessage] = useState('');
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const updateRow = (key, index, field, value) => setForm(prev => ({
+    ...prev,
+    [key]: prev[key].map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)),
+  }));
+  const addRow = key => setForm(prev => ({ ...prev, [key]: [...prev[key], emptyRow()] }));
+  const removeRow = (key, index) => setForm(prev => {
+    const rest = prev[key].filter((_, rowIndex) => rowIndex !== index);
+    return { ...prev, [key]: rest.length ? rest : [emptyRow()] };
+  });
+
+  // Orden del impreso: los exámenes complementarios van entre el examen físico
+  // y las indicaciones, y cada bloque vacío simplemente no se emite.
+  const complementary = complementaryBlocks(form);
+  const printSections = SECTIONS.flatMap(section => {
+    const own = form[section.key].trim() ? [{ key: section.key, label: section.label, text: form[section.key].trim() }] : [];
+    if (section.key !== 'examenFisico' || !complementary.length) return own;
+    return [...own, { key: 'complementarios', label: 'Exámenes complementarios', blocks: complementary }];
+  });
+
+  // Reutiliza el parser de Curva de exámenes: mismas reglas que Vista General.
+  const parseLabs = () => {
+    const fallback = String(form.fechaHora || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const { lineas, total } = summarizeParsedLabs(parseLabReportText(labPaste, fallback));
+    if (!lineas.length) {
+      setLabParseMessage(total ? 'No se reconocieron resultados con valor. Revísalos o anótalos directamente.' : 'No se reconocieron resultados. Revisa el texto o anótalos directamente.');
+      return;
+    }
+    setForm(prev => ({ ...prev, laboratorio: [prev.laboratorio.trim(), lineas.join('\n')].filter(Boolean).join('\n') }));
+    setLabPaste('');
+    setLabParseMessage(`Se agregaron ${lineas.length} línea(s). Revísalas y edítalas antes de imprimir.`);
+  };
 
   useEffect(() => {
     const prefill = getMultiPrefill();
@@ -76,11 +217,17 @@ export default function NotaEvolucion() {
     // Abierta desde Vista General: el paciente ya está confirmado en pantalla,
     // así que aquí sí corresponde traer sus datos.
     setFromVistaGeneral(true);
+    // Diagnóstico completo: el principal más los asociados, uno por línea.
+    const diagnostico = [prefill.diagnostico_principal || prefill.diagnostico, prefill.diagnostico_desglose]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .join('\n');
     setForm(prev => ({
       ...prev,
       pacienteNombre: prefill.patient_name || prev.pacienteNombre,
       pacienteRut: prefill.patient_rut ? formatRut(prefill.patient_rut) : prev.pacienteRut,
-      diagnostico: prefill.diagnostico_principal || prefill.diagnostico || prev.diagnostico,
+      diagnostico: diagnostico || prev.diagnostico,
+      laboratorio: prev.laboratorio || String(prefill.ultimo_laboratorio || '').trim(),
       servicio: prefill.servicio || prev.servicio,
       cama: prefill.cama || prev.cama,
       recordBedCode: prefill.source_bed || prefill.cama || prev.recordBedCode,
@@ -102,7 +249,17 @@ export default function NotaEvolucion() {
     const current = bedRecords.find(item => item.bedCode === (form.recordBedCode || form.cama));
     const patient = getLatestProaForm(current);
     if (!patient) return;
-    setForm(prev => ({ ...prev, pacienteNombre: prev.pacienteNombre || patient.paciente || '', pacienteRut: prev.pacienteRut || formatRut(patient.rut || ''), diagnostico: prev.diagnostico || patient.diagnostico_principal || patient.diagnostico_actual || '' }));
+    const diagnostico = [patient.diagnostico_principal || patient.diagnostico_actual, patient.diagnostico_desglose]
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+      .join('\n');
+    setForm(prev => ({
+      ...prev,
+      pacienteNombre: prev.pacienteNombre || patient.paciente || '',
+      pacienteRut: prev.pacienteRut || formatRut(patient.rut || ''),
+      diagnostico: prev.diagnostico || diagnostico,
+      laboratorio: prev.laboratorio || String(patient.vista_ultimo_laboratorio || '').trim(),
+    }));
   }, [fromVistaGeneral, bedRecords, form.cama, form.recordBedCode]);
 
   const goBack = () => {
@@ -138,7 +295,8 @@ export default function NotaEvolucion() {
         return;
       }
     }
-    const narrative = [form.diagnostico && `DIAGNÓSTICO(S):\n${form.diagnostico.trim()}`, form.anamnesis && `ANAMNESIS:\n${form.anamnesis.trim()}`, form.examenFisico && `EXAMEN FÍSICO:\n${form.examenFisico.trim()}`, form.indicaciones && `INDICACIONES:\n${form.indicaciones.trim()}`].filter(Boolean).join('\n\n');
+    const complementarios = complementaryText(form);
+    const narrative = [form.diagnostico && `DIAGNÓSTICO(S):\n${form.diagnostico.trim()}`, form.anamnesis && `ANAMNESIS:\n${form.anamnesis.trim()}`, form.examenFisico && `EXAMEN FÍSICO:\n${form.examenFisico.trim()}`, complementarios && `EXÁMENES COMPLEMENTARIOS:\n${complementarios}`, form.indicaciones && `INDICACIONES:\n${form.indicaciones.trim()}`].filter(Boolean).join('\n\n');
     const currentState = [form.anamnesis && `Anamnesis / evolución: ${form.anamnesis.trim()}`, form.examenFisico && `Examen físico: ${form.examenFisico.trim()}`].filter(Boolean).join('\n');
     const existingPlans = String(latest.vista_planes_pendientes || '').trim();
     const proaPlan = latest.plan_duracion ? `(PROA): ${String(latest.plan_duracion).trim()}` : '';
@@ -155,7 +313,7 @@ export default function NotaEvolucion() {
         proa_entry_type: form.esVisitaServicio ? 'visita_servicio' : 'nota_evolucion_hospitalaria',
         evolucion: narrative,
         ...(form.actualizaEstadoClinico ? { vista_ultima_evolucion: currentState || narrative, vista_ultima_evolucion_actualizada_en: stateTimestamp, vista_planes_pendientes: currentPlans || latest.vista_planes_pendientes || '' } : {}),
-        nota_evolucion: { diagnostico: form.diagnostico, anamnesis: form.anamnesis, examen_fisico: form.examenFisico, indicaciones: form.indicaciones, medico: form.medico, fecha_hora: form.fechaHora, visita_servicio: form.esVisitaServicio, actualiza_estado_clinico: form.actualizaEstadoClinico, titulo: form.esVisitaServicio ? 'Visita servicio Dr. Rubilar' : 'Nota de evolución' },
+        nota_evolucion: { diagnostico: form.diagnostico, anamnesis: form.anamnesis, examen_fisico: form.examenFisico, examenes_complementarios: complementarios, laboratorio: form.laboratorio, imagenes: filledRows(form.imagenes), otros_examenes: filledRows(form.otrosExamenes), indicaciones: form.indicaciones, medico: form.medico, fecha_hora: form.fechaHora, visita_servicio: form.esVisitaServicio, actualiza_estado_clinico: form.actualizaEstadoClinico, titulo: form.esVisitaServicio ? 'Visita servicio Dr. Rubilar' : 'Nota de evolución' },
       });
       const refreshed = await fetchProaRecords();
       setBedRecords(refreshed);
@@ -253,14 +411,22 @@ export default function NotaEvolucion() {
               <textarea value={form.diagnostico} onChange={e => update('diagnostico', e.target.value)} placeholder="Diagnósticos del paciente" />
             </section>
             {SECTIONS.map(section => (
-              <section key={section.key} className="evolution-preview-section">
-                <h2>{section.label}</h2>
-                <textarea
-                  value={form[section.key]}
-                  onChange={e => update(section.key, e.target.value)}
-                  placeholder={`${section.label} (se omitirá al imprimir si queda en blanco)`}
-                />
-              </section>
+              <Fragment key={section.key}>
+                <section className="evolution-preview-section">
+                  <h2>{section.label}</h2>
+                  <textarea
+                    value={form[section.key]}
+                    onChange={e => update(section.key, e.target.value)}
+                    placeholder={`${section.label} (se omitirá al imprimir si queda en blanco)`}
+                  />
+                </section>
+                {section.key === 'examenFisico' && complementary.length > 0 && (
+                  <section className="evolution-preview-section">
+                    <h2>Exámenes complementarios</h2>
+                    <textarea value={complementaryText(form)} readOnly />
+                  </section>
+                )}
+              </Fragment>
             ))}
             <div className="evolution-preview-signature">
               <FirmaDigital value={form.firma} onSave={value => update('firma', value)} />
@@ -367,18 +533,77 @@ export default function NotaEvolucion() {
         </section>
 
         {SECTIONS.map(section => (
-          <section key={section.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <label className="space-y-2 text-sm font-semibold text-slate-800">
-              {section.label}
-              <Textarea
-                value={form[section.key]}
-                onChange={e => update(section.key, e.target.value)}
-                placeholder={section.placeholder}
-                className="min-h-36 resize-y font-sans font-normal leading-7"
-              />
-            </label>
-            <p className="mt-2 text-xs font-normal text-slate-400">Si queda en blanco, esta sección no aparecerá al imprimir.</p>
-          </section>
+          <Fragment key={section.key}>
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <label className="space-y-2 text-sm font-semibold text-slate-800">
+                {section.label}
+                <Textarea
+                  value={form[section.key]}
+                  onChange={e => update(section.key, e.target.value)}
+                  placeholder={section.placeholder}
+                  className="min-h-36 resize-y font-sans font-normal leading-7"
+                />
+              </label>
+              <p className="mt-2 text-xs font-normal text-slate-400">Si queda en blanco, esta sección no aparecerá al imprimir.</p>
+            </section>
+
+            {section.key === 'examenFisico' && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold text-slate-800">Exámenes complementarios</h2>
+                <p className="mt-1 text-xs text-slate-400">Cada bloque que quede en blanco no aparecerá al imprimir.</p>
+
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Laboratorio</p>
+                  <Textarea
+                    value={form.laboratorio}
+                    onChange={e => update('laboratorio', e.target.value)}
+                    placeholder="Anota los resultados directamente, o pégalos abajo para procesarlos…"
+                    className="min-h-24 resize-y font-sans font-normal leading-7"
+                  />
+                  <details className="rounded-xl border border-blue-200 bg-blue-50/70 p-3">
+                    <summary className="cursor-pointer text-xs font-bold text-blue-900">Pegar informe y procesar</summary>
+                    <p className="mt-1 text-[11px] text-blue-700">Usa las mismas reglas de lectura que la curva de exámenes de Vista General.</p>
+                    <Textarea
+                      value={labPaste}
+                      onChange={e => { setLabPaste(e.target.value); setLabParseMessage(''); }}
+                      placeholder="Pega hemograma, función renal/hepática, electrolitos, PCR, cultivos…"
+                      className="mt-2 min-h-24 resize-y bg-white font-mono text-xs"
+                    />
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      {labParseMessage
+                        ? <p className={`text-xs font-semibold ${labParseMessage.startsWith('No se') ? 'text-amber-700' : 'text-emerald-700'}`}>{labParseMessage}</p>
+                        : <span />}
+                      <Button type="button" size="sm" onClick={parseLabs} disabled={!labPaste.trim()} className="bg-blue-700 hover:bg-blue-800">
+                        Procesar y agregar
+                      </Button>
+                    </div>
+                  </details>
+                </div>
+
+                <ExamRowsEditor
+                  title="Imagenología"
+                  listId="nota-imagenes-opciones"
+                  options={IMAGEN_OPCIONES}
+                  tipoPlaceholder="TAC de tórax, ecografía abdominal…"
+                  rows={form.imagenes}
+                  onChange={(index, field, value) => updateRow('imagenes', index, field, value)}
+                  onAdd={() => addRow('imagenes')}
+                  onRemove={index => removeRow('imagenes', index)}
+                />
+
+                <ExamRowsEditor
+                  title="Otros exámenes"
+                  listId="nota-otros-opciones"
+                  options={OTROS_EXAMEN_OPCIONES}
+                  tipoPlaceholder="Espirometría, colonoscopía, EDA…"
+                  rows={form.otrosExamenes}
+                  onChange={(index, field, value) => updateRow('otrosExamenes', index, field, value)}
+                  onAdd={() => addRow('otrosExamenes')}
+                  onRemove={index => removeRow('otrosExamenes', index)}
+                />
+              </section>
+            )}
+          </Fragment>
         ))}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -408,10 +633,16 @@ export default function NotaEvolucion() {
 
         {form.diagnostico.trim() && <section className="evolution-print-section"><h2>Diagnóstico(s)</h2><div className="evolution-ruled-text">{form.diagnostico.trim()}</div></section>}
 
-        {SECTIONS.filter(section => form[section.key].trim()).map(section => (
+        {printSections.map(section => (
           <section key={section.key} className="evolution-print-section">
             <h2>{section.label}</h2>
-            <div className="evolution-ruled-text">{form[section.key].trim()}</div>
+            {section.blocks
+              ? section.blocks.map(block => (
+                <div key={block.label} className="evolution-ruled-text">
+                  <strong>{block.label}:</strong>{'\n'}{block.lines.join('\n')}
+                </div>
+              ))
+              : <div className="evolution-ruled-text">{section.text}</div>}
           </section>
         ))}
 
