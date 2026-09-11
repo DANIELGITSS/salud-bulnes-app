@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PatientData, PatientGroup } from '@/types/protocol';
-import { getDoseRecommendations, getClassificationDetails } from '@/utils/insulina/protocolLogic';
-import { AlertCircle, AlertTriangle, BedDouble, CheckCircle2, FileText, Printer } from 'lucide-react';
+import { getDoseRecommendations, getClassificationDetails, getBasalGuidance } from '@/utils/insulina/protocolLogic';
+import { AlertCircle, AlertTriangle, BedDouble, CheckCircle2, FileText, Printer, Syringe } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -49,8 +49,14 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
     mostrarAlertaCorticoide && corticoideOverride === 'resistente' ? 'resistente' : grupo;
 
   const info = groupInfo[grupoEfectivo];
-  const recommendations = getDoseRecommendations(grupoEfectivo, data.peso);
+  const recommendations = getDoseRecommendations(grupoEfectivo, data.peso, data.usoPrevioNPH);
   const classificationDetails = getClassificationDetails(data);
+  const basal = getBasalGuidance(data, grupoEfectivo);
+  const basalTone = basal.estado === 'sobrebasalizado'
+    ? { card: 'border-red-300 bg-red-50', title: 'text-red-900', chip: 'bg-red-600' }
+    : basal.estado === 'con_basal'
+      ? { card: 'border-amber-300 bg-amber-50', title: 'text-amber-900', chip: 'bg-amber-600' }
+      : { card: 'border-blue-300 bg-blue-50', title: 'text-blue-900', chip: 'bg-blue-600' };
 
   // Generar fecha y hora actual
   const now = new Date();
@@ -81,7 +87,7 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
 
       {/* Botón de impresión - solo visible en pantalla */}
       <div className="print:hidden flex flex-wrap justify-end gap-2">
-        {onIndexResult && <Button onClick={() => onIndexResult({ grupo: grupoEfectivo, clasificacion: info.title, pesoKg: data.peso, glicemiaIngreso: data.glicemiaIngreso, recomendaciones: recommendations, usoCondicionado: Boolean(usoCondicionado), datos: data })} variant="outline" className="gap-2 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+        {onIndexResult && <Button onClick={() => onIndexResult({ grupo: grupoEfectivo, clasificacion: info.title, pesoKg: data.peso, glicemiaIngreso: data.glicemiaIngreso, recomendaciones: recommendations, conductaBasal: basal, usoCondicionado: Boolean(usoCondicionado), datos: data })} variant="outline" className="gap-2 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
           <BedDouble className="w-4 h-4" />
           {indexLabel}
         </Button>}
@@ -154,6 +160,26 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="border-2 border-gray-800 p-3 text-xs">
+            <p className="font-bold mb-1">Insulina basal — {basal.titulo}</p>
+            <p className="mb-2">{basal.resumen}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="font-semibold">{basal.estado === 'sin_basal' ? '¿Cuándo iniciarla?' : '¿Cuándo subirla?'}</p>
+                <ul className="list-disc list-inside space-y-0.5">{basal.cuando.map((item, index) => <li key={index}>{item}</li>)}</ul>
+              </div>
+              <div>
+                <p className="font-semibold">Dosis y titulación</p>
+                <ul className="list-disc list-inside space-y-0.5">{basal.titulacion.map((item, index) => <li key={index}>{item}</li>)}</ul>
+              </div>
+            </div>
+            {basal.alertas.length > 0 && (
+              <ul className="list-disc list-inside space-y-0.5 mt-2 border-t border-gray-400 pt-2">
+                {basal.alertas.map((item, index) => <li key={index}>{item}</li>)}
+              </ul>
+            )}
           </div>
 
           <div className="border border-gray-400 p-3 bg-gray-50 text-xs">
@@ -328,6 +354,44 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
             </tbody>
           </table>
         </div>
+      </Card>
+
+      <Card className={`p-6 border-2 ${basalTone.card}`}>
+        <div className="flex items-start gap-3">
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white ${basalTone.chip}`}>
+            <Syringe className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Insulina basal</p>
+            <h3 className={`text-lg font-bold ${basalTone.title}`}>{basal.titulo}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{basal.resumen}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl bg-white/70 p-4">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              {basal.estado === 'sin_basal' ? '¿Cuándo iniciarla?' : '¿Cuándo subirla?'}
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm">
+              {basal.cuando.map((item, index) => <li key={index}>{item}</li>)}
+            </ul>
+          </div>
+          <div className="rounded-xl bg-white/70 p-4">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Dosis y titulación</p>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm">
+              {basal.titulacion.map((item, index) => <li key={index}>{item}</li>)}
+            </ul>
+          </div>
+        </div>
+
+        {basal.alertas.length > 0 && (
+          <div className="mt-3 rounded-xl border border-dashed border-current/30 bg-white/50 p-3">
+            <ul className="list-disc space-y-1 pl-5 text-sm">
+              {basal.alertas.map((item, index) => <li key={index}>{item}</li>)}
+            </ul>
+          </div>
+        )}
       </Card>
 
       <Card className="p-6 bg-muted/50">
