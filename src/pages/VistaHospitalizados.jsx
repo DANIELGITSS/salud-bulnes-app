@@ -31,7 +31,7 @@ const EMPTY = {
   ultimaEvolucionActualizadaEn: '',
   signosVitales: '', oxigenoterapiaTipo: '', oxigenoterapiaCantidad: '', drogasVasoactivas: '', soporteClinico: '',
   letIndicacion: '', iotIndicacion: '', rcpIndicacion: '', pacienteSocial: false, escalas: [], evaluacionesNutricionales: [], historialActualizaciones: [],
-  diabetesEvaluado: false, diabetes: null, diabetesEvaluadoEn: '', protocolosInsulina: [],
+  diabetesEvaluado: false, diabetes: null, diabetesEvaluadoEn: '', protocolosInsulina: [], pendientesExternos: [],
   informesMedicos: [], cultivos: [],
   reingresoEvaluado: false, reingresoMenor30: false, reingresoFechaEgresoPrevia: '', reingresoEvaluadoEn: '',
 };
@@ -599,6 +599,7 @@ function proaToPatient(record) {
     escalas: Array.isArray(form.vista_escalas) ? form.vista_escalas : [], evaluacionesNutricionales: Array.isArray(form.vista_evaluaciones_nutricionales) ? form.vista_evaluaciones_nutricionales : [],
     diabetesEvaluado: diabetesForm.diabetes_evaluado === true, diabetes: diabetesForm.diabetes_evaluado === true ? diabetesForm.diabetes === true : null, diabetesEvaluadoEn: diabetesForm.diabetes_evaluado_en || '',
     protocolosInsulina: Array.isArray(form.vista_protocolos_insulina) ? form.vista_protocolos_insulina : [],
+    pendientesExternos: Array.isArray(form.vista_pendientes_externos) ? form.vista_pendientes_externos : [],
     informesMedicos: Array.isArray(form.vista_informes_medicos) ? form.vista_informes_medicos : [],
     reingresoEvaluado: Boolean(readmissionForm),
     reingresoMenor30: readmissionForm?.reingreso_menor_30 === true,
@@ -614,6 +615,11 @@ function proaToPatient(record) {
     }; }),
     proaRecordId: record.id, proaBedCode: record.bedCode, proaEnrolled: isProaEnrolledRecord(record), proaUpdatedAt: record.updatedAt,
   };
+}
+
+// Compara RUT ignorando puntos, guion y mayúsculas del dígito verificador.
+function normalizeRut(value) {
+  return String(value || '').replace(/[^0-9kK]/g, '').toUpperCase();
 }
 
 function mergePatient(base, local) {
@@ -635,7 +641,7 @@ function mergePatient(base, local) {
     merged.reingresoEvaluadoEn = readmissionSource.reingresoEvaluadoEn || '';
   }
   const proaIsNewer = String(base.proaUpdatedAt || '') > String(local?.updatedAt || '');
-  if (proaIsNewer) ['nombre', 'rut', 'fechaNacimiento', 'edad', 'sexo', 'direccion', 'comuna', 'fechaIngreso', 'proaRecordId', 'proaBedCode', 'proaEnrolled', 'pacienteSocial', 'diabetesEvaluado', 'diabetes', 'diabetesEvaluadoEn', 'protocolosInsulina', 'evaluacionesNutricionales', 'diagnosticoPrincipal', 'diagnostico', 'antibioterapia', 'antibioticos', 'aislamiento', 'patogenoAislado', 'ultimoLaboratorio', 'laboratorios', 'cultivos', 'ultimaEvolucion', 'ultimaEvolucionActualizadaEn', 'planProa', 'planesAmbitos', 'planesPendientes', 'planAlta', 'informesMedicos'].forEach(key => {
+  if (proaIsNewer) ['nombre', 'rut', 'fechaNacimiento', 'edad', 'sexo', 'direccion', 'comuna', 'fechaIngreso', 'proaRecordId', 'proaBedCode', 'proaEnrolled', 'pacienteSocial', 'diabetesEvaluado', 'diabetes', 'diabetesEvaluadoEn', 'protocolosInsulina', 'evaluacionesNutricionales', 'pendientesExternos', 'diagnosticoPrincipal', 'diagnostico', 'antibioterapia', 'antibioticos', 'aislamiento', 'patogenoAislado', 'ultimoLaboratorio', 'laboratorios', 'cultivos', 'ultimaEvolucion', 'ultimaEvolucionActualizadaEn', 'planProa', 'planesAmbitos', 'planesPendientes', 'planAlta', 'informesMedicos'].forEach(key => {
     const explicitlyClearable = ['ultimaEvolucion', 'ultimaEvolucionActualizadaEn'].includes(key);
     if ((explicitlyClearable && base[key] !== undefined) || (base[key] !== '' && base[key] !== undefined)) merged[key] = base[key];
   });
@@ -920,6 +926,7 @@ function VistaHospitalizados() {
   const [registry, setRegistry] = useState(readRegistry);
   const [hodomRows, setHodomRows] = useState([]);
   const [selectedCode, setSelectedCode] = useState(() => returningToBed ? sessionStorage.getItem(SELECTED_BED_KEY) || '' : '');
+  const [pendingReview, setPendingReview] = useState(null);
   const [draft, setDraft] = useState(() => { const code = returningToBed ? sessionStorage.getItem(SELECTED_BED_KEY) || '' : ''; return { ...EMPTY, ...(code ? readRegistry()[code] : {}) }; });
   const [service, setService] = useState('MQ1');
   const [status, setStatus] = useState('all');
@@ -1200,6 +1207,7 @@ function VistaHospitalizados() {
           reingreso_fecha_egreso_previa: savedDraft.reingresoFechaEgresoPrevia || '', reingreso_evaluado_en: savedDraft.reingresoEvaluadoEn || '',
           diabetes_evaluado: savedDraft.diabetesEvaluado === true, diabetes: savedDraft.diabetes === true, diabetes_evaluado_en: savedDraft.diabetesEvaluadoEn || '',
           vista_escalas: savedDraft.escalas || [], vista_evaluaciones_nutricionales: savedDraft.evaluacionesNutricionales || [], vista_protocolos_insulina: savedDraft.protocolosInsulina || [],
+          vista_pendientes_externos: savedDraft.pendientesExternos || [],
           fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), proa_entry_type: 'actualizacion_general_vista_hospitalizados',
         });
       }
@@ -1426,6 +1434,42 @@ function VistaHospitalizados() {
     const next = { ...registry, [selectedCode]: savedDraft };
     setDraft(savedDraft); setRegistry(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); setNutritionOpen(false); setSaved(true);
   };
+  // Resultados que otro profesional dejó desde fuera de Vista General. Quedan en
+  // bandeja hasta que el médico confirme que corresponden a este paciente.
+  const pendingResults = Array.isArray(draft.pendientesExternos) ? draft.pendientesExternos : [];
+  const resolvePendingResult = async (pending, incorporate) => {
+    const rest = pendingResults.filter(item => item.id !== pending.id);
+    const patch = { pendientesExternos: rest, updatedAt: new Date().toISOString() };
+    if (incorporate && pending.tipo === 'nrs2002') {
+      patch.evaluacionesNutricionales = [pending.payload, ...(draft.evaluacionesNutricionales || [])].slice(0, 30);
+    }
+    if (incorporate && pending.tipo === 'insulina') {
+      patch.protocolosInsulina = [pending.payload, ...(draft.protocolosInsulina || [])].slice(0, 30);
+      patch.diabetesEvaluado = true;
+      patch.diabetes = true;
+      patch.diabetesEvaluadoEn = draft.diabetesEvaluadoEn || pending.registradoEn;
+    }
+    const savedDraft = { ...draft, ...patch };
+    const next = { ...registry, [selectedCode]: savedDraft };
+    setDraft(savedDraft); setRegistry(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    setPendingReview(null); setSaved(true);
+    if (!savedDraft.proaRecordId) return;
+    try {
+      const records = await fetchProaRecords();
+      const latest = getLatestProaForm(records.find(item => item.id === savedDraft.proaRecordId)) || {};
+      await saveProaRecord({
+        ...latest,
+        vista_pendientes_externos: savedDraft.pendientesExternos,
+        vista_evaluaciones_nutricionales: savedDraft.evaluacionesNutricionales || [],
+        vista_protocolos_insulina: savedDraft.protocolosInsulina || [],
+        diabetes_evaluado: savedDraft.diabetesEvaluado === true, diabetes: savedDraft.diabetes === true, diabetes_evaluado_en: savedDraft.diabetesEvaluadoEn || '',
+        fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5),
+        proa_entry_type: incorporate ? 'resultado_externo_incorporado' : 'resultado_externo_desestimado',
+      });
+      setSyncState('ready');
+    } catch { setSyncState('offline'); }
+  };
+
   const openDiagnosis = () => { setDiagnosisDraft({ principal: draft.diagnosticoPrincipal || '', desglose: draft.diagnostico || '', antecedentes: draft.antecedentes || '' }); setDiagnosisSearch(''); setDiagnosisCategory('Todas'); setDiagnosisOpen(true); };
   const addCatalogDiagnosis = (item) => setDiagnosisDraft(current => {
     const line = item.label;
@@ -1770,6 +1814,43 @@ function VistaHospitalizados() {
 
   return <div className="min-h-screen bg-slate-100">
     {documentArchiveOpen && <div className="fixed inset-0 z-[99] flex items-center justify-center bg-slate-950/65 p-2 sm:p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Historia de evoluciones"><div className="flex max-h-[92vh] min-w-0 w-[calc(100vw-1rem)] max-w-4xl flex-col overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-2xl"><header className="flex min-w-0 items-start justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-4 sm:px-5"><div className="min-w-0"><h2 className="break-words text-lg font-black text-indigo-950">Historia de evoluciones</h2><p className="break-words text-xs text-indigo-700">{draft.nombre || `Cama ${selectedBed?.cell || ''}`} · {(draft.historialActualizaciones || []).length} registro{draft.historialActualizaciones?.length === 1 ? '' : 's'}</p></div><Button type="button" size="sm" variant="outline" onClick={() => setDocumentArchiveOpen(false)} className="shrink-0">Cerrar</Button></header><div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto p-3 sm:p-5"><section className="min-w-0 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3"><div className="min-w-0 space-y-2">{(draft.historialActualizaciones || []).length > 0 ? [...(draft.historialActualizaciones || [])].map((snapshot, index) => { const savedAt = snapshot.guardadoEn || snapshot.createdAt || snapshot.updatedAt || snapshot.fecha; return <div key={snapshot.id || savedAt || index} className="relative min-w-0 rounded-lg border border-indigo-100 bg-white"><Button type="button" size="icon" variant="ghost" title="Vista previa / imprimir" aria-label={`Imprimir evolución del ${savedAt || 'registro'}`} onClick={() => printHospitalSnapshot(snapshot, draft, selectedBed)} className="absolute right-9 top-2 z-10 h-8 w-8 text-indigo-700 hover:bg-indigo-50"><Printer className="h-4 w-4" /></Button><details className="group min-w-0" open={index === 0}><summary className="cursor-pointer list-none p-3 pr-20"><p className="break-words text-sm font-black text-slate-900">{savedAt ? new Date(savedAt).toLocaleString('es-CL') : 'Fecha no consignada'}</p><p className="mt-1 line-clamp-2 break-words text-xs text-slate-500">{snapshot.ultimaEvolucion || snapshot.resumenCaso || snapshot.diagnosticoPrincipal || snapshot.diagnostico || 'Actualización clínica'}</p><ChevronDown className="absolute right-3 top-4 h-4 w-4 text-indigo-700 transition-transform group-open:rotate-180" /></summary><div className="min-w-0 space-y-2 border-t border-indigo-100 p-3 text-sm text-slate-700"><p className="whitespace-pre-wrap break-words"><strong>Resumen clínico:</strong><br />{snapshot.resumenCaso || '—'}</p><p className="whitespace-pre-wrap break-words"><strong>Evolución actual:</strong><br />{snapshot.ultimaEvolucion || '—'}</p>{snapshot.planesPendientes && <p className="whitespace-pre-wrap break-words"><strong>Planes:</strong><br />{snapshot.planesPendientes}</p>}</div></details></div>; }) : <p className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">Aún no hay evoluciones almacenadas.</p>}</div></section><section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h3 className="text-sm font-black text-emerald-950">Informes médicos ({(draft.informesMedicos || []).length})</h3><p className="break-words text-xs text-emerald-800">También puede consultar y reimprimir sus versiones almacenadas.</p></div><Button type="button" size="sm" onClick={() => { setDocumentArchiveOpen(false); setMedicalReportsOpen(true); }} className="gap-2 bg-emerald-700 hover:bg-emerald-800"><FileText className="h-4 w-4" />Abrir informes</Button></div></section></div></div></div>}
+    {pendingReview && <div className="fixed inset-0 z-[98] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Resultado por incorporar">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl">
+        <header className="border-b border-amber-200 bg-amber-50 px-5 py-4">
+          <h2 className="text-lg font-black text-amber-950">{pendingReview.titulo}</h2>
+          <p className="mt-0.5 text-xs text-amber-800">
+            Declarado para <strong>{pendingReview.declarado?.nombre || 'sin nombre'}</strong>{pendingReview.declarado?.rut ? ` · ${pendingReview.declarado.rut}` : ''} · registrado el {pendingReview.registradoEn ? new Date(pendingReview.registradoEn).toLocaleString('es-CL') : 'sin fecha'}
+          </p>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {(draft.nombre || draft.rut) && (
+            <div className={`mb-4 rounded-xl border p-3 text-sm ${normalizeRut(pendingReview.declarado?.rut) && normalizeRut(draft.rut) && normalizeRut(pendingReview.declarado?.rut) !== normalizeRut(draft.rut) ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+              <p className="font-bold">Paciente en esta cama: {draft.nombre || 'sin nombre'}{draft.rut ? ` · ${draft.rut}` : ''}</p>
+              {normalizeRut(pendingReview.declarado?.rut) && normalizeRut(draft.rut) && normalizeRut(pendingReview.declarado?.rut) !== normalizeRut(draft.rut) && <p className="mt-1">El RUT declarado no coincide con el de la ficha. Verifica antes de incorporar.</p>}
+            </div>
+          )}
+          <dl className="space-y-2 text-sm">
+            {Object.entries(pendingReview.payload || {}).filter(([, value]) => value !== '' && value !== null && value !== undefined && typeof value !== 'object').map(([key, value]) => (
+              <div key={key} className="grid gap-1 border-b border-slate-100 pb-2 sm:grid-cols-[200px_1fr]">
+                <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">{key.replace(/_/g, ' ')}</dt>
+                <dd className="font-medium text-slate-800">{String(value)}</dd>
+              </div>
+            ))}
+            {Array.isArray(pendingReview.payload?.recomendaciones) && pendingReview.payload.recomendaciones.length > 0 && (
+              <div className="pt-1">
+                <dt className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-500">Recomendaciones</dt>
+                <dd><ul className="list-disc space-y-1 pl-5 text-slate-800">{pendingReview.payload.recomendaciones.map((item, index) => <li key={index}>{typeof item === 'string' ? item : JSON.stringify(item)}</li>)}</ul></dd>
+              </div>
+            )}
+          </dl>
+        </div>
+        <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+          <Button type="button" variant="outline" onClick={() => setPendingReview(null)}>Cerrar</Button>
+          <Button type="button" variant="outline" onClick={() => resolvePendingResult(pendingReview, false)} className="border-red-300 bg-red-50 text-red-700 hover:bg-red-100">Desestimar</Button>
+          <Button type="button" onClick={() => resolvePendingResult(pendingReview, true)} className="bg-emerald-700 hover:bg-emerald-800">Guardar e incorporar al registro</Button>
+        </footer>
+      </div>
+    </div>}
     {summaryOpen && <div className="fixed inset-0 z-[97] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-2xl rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-5 shadow-2xl"><div className="mb-4 rounded-xl bg-emerald-100/80 p-3"><h2 className="text-lg font-black text-emerald-950">Resumen clínico actual — Cama {selectedBed?.cell}</h2><p className="text-xs text-emerald-700">Edita solamente la síntesis general vigente del cuadro clínico.</p></div><Field label="Resumen clínico actual"><textarea className={`${textarea} min-h-48`} value={summaryDraft} onChange={e => setSummaryDraft(e.target.value)} placeholder="Síntesis general vigente del cuadro clínico" /></Field><div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => setSummaryOpen(false)}>Cancelar</Button><Button onClick={saveClinicalSummary} className="bg-emerald-700 hover:bg-emerald-800">Guardar resumen</Button></div></div></div>}
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1500px] items-center gap-3 px-4 py-3">
@@ -1813,6 +1894,25 @@ function VistaHospitalizados() {
       <aside className={`${selectedBed ? 'block' : 'hidden'} min-w-0 pb-20`}>
         {!selectedBed ? <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center"><BedDouble className="mx-auto h-12 w-12 text-slate-300" /><h2 className="mt-4 font-bold text-slate-800">Selecciona una cama</h2><p className="mt-1 text-sm text-slate-500">Podrás registrar al paciente y generar todos sus documentos desde una sola ficha.</p></div> : <div className="space-y-4">
           <Button type="button" variant="outline" onClick={() => { setSelectedCode(''); sessionStorage.removeItem(SELECTED_BED_KEY); }} className="gap-2"><ChevronLeft className="h-4 w-4" />Volver a camas</Button>
+
+          {pendingResults.length > 0 && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-amber-700">Resultados por revisar</p>
+              <div className="mt-2 space-y-2">
+                {pendingResults.map(pending => (
+                  <div key={pending.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900">Este usuario cuenta con {pending.tipo === 'nrs2002' ? 'un tamizaje nutricional' : 'un protocolo insulínico'}. ¿Desea cargarlo?</p>
+                      <p className="text-xs text-slate-500">
+                        Registrado por otro profesional el {pending.registradoEn ? new Date(pending.registradoEn).toLocaleString('es-CL') : 'sin fecha'} · declarado para {pending.declarado?.nombre || 'sin nombre'}{pending.declarado?.rut ? ` · ${pending.declarado.rut}` : ''}
+                      </p>
+                    </div>
+                    <Button type="button" size="sm" onClick={() => setPendingReview(pending)} className="shrink-0 gap-2 bg-amber-600 hover:bg-amber-700">Revisar</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <section className={`border border-slate-200 bg-white p-5 shadow-sm ${patientViewTab === 'documents' && detailsOpen ? 'rounded-t-2xl rounded-b-none pb-0' : 'rounded-2xl'}`}>
             <div className={`flex flex-wrap items-start justify-between gap-3 ${detailsOpen ? 'mb-4' : ''}`}><div><p className="text-xs font-bold uppercase tracking-wider text-teal-700">{selectedBed.serviceShort} · {selectedBed.salaLabel}</p><h2 className="text-2xl font-black text-slate-950">Cama {selectedBed.cell}</h2>{draft.nombre && <p className="flex flex-wrap items-center gap-1.5 font-bold text-slate-800">{draft.nombre} {draft.rut && <span className="font-normal text-slate-500">· {draft.rut}</span>}{draft.edad && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-800 ring-1 ring-sky-200">{draft.edad} años</span>}{draft.pacienteSocial && <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold text-fuchsia-800"><HeartHandshake className="h-3 w-3" />Paciente social</span>}</p>}{occupied && <div className="flex flex-wrap items-center gap-2"><p className="text-xs font-semibold text-emerald-700">Ingreso {draft.fechaIngreso || 'sin fecha'} · Día {hospitalDays(draft.fechaIngreso)}</p>{draft.reingresoEvaluado && <span title={draft.reingresoEvaluadoEn ? `Verificado el ${displayClinicalDate(String(draft.reingresoEvaluadoEn).slice(0, 10))}` : 'Verificación registrada'} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${draft.reingresoMenor30 ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-500'}`}>{draft.reingresoMenor30 ? 'Reingreso &lt;30 días' : 'No reingreso &lt;30 días'}</span>}</div>}</div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setDetailsOpen(open => !open)} className="gap-2">{detailsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}{detailsOpen ? 'Ocultar ficha' : 'Ver ficha'}</Button><Button type="button" variant="outline" onClick={saveAllChanges} disabled={savingAll || !occupied} className="gap-2 border-emerald-300 bg-emerald-50 font-bold text-emerald-800 hover:bg-emerald-100"><Save className="h-4 w-4" />{savingAll ? 'Guardando…' : saved ? 'Cambios guardados' : 'Guardar todos los cambios'}</Button>{['MQ1', 'MQ2'].includes(selectedBed.serviceShort) && <Button type="button" variant="outline" onClick={() => openAction('FormulariosHODOM')} disabled={!occupied} className="gap-2 border-indigo-300 bg-indigo-50 font-bold text-indigo-800 hover:bg-indigo-100"><LogOut className="h-4 w-4" />Derivar a HODOM</Button>}<Button type="button" variant="outline" onClick={openDischarge} disabled={!occupied} className="gap-2 border-red-300 bg-red-50 font-bold text-red-700 hover:bg-red-100"><LogOut className="h-4 w-4" />Egresar paciente</Button><Button onClick={openGeneral} className="gap-2 bg-teal-700 hover:bg-teal-800"><ClipboardList className="h-4 w-4" />Editar ficha general</Button></div></div>
             {occupied && <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Pendientes esenciales del paciente">{essentialStatusLabels.map(label => <span key={label.key} className={`rounded-full px-2.5 py-1 text-[10px] font-black ring-1 ${label.style}`}>{label.text}</span>)}</div>}

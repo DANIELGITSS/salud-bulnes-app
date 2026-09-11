@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { getMultiPrefill } from '@/lib/multiTemplatePrefill';
 import HospitalLocationIndexDialog from '@/components/hospitalizados/HospitalLocationIndexDialog';
-import { saveInsulinProtocolToHospitalLocation } from '@/lib/hospitalNrsRegistry';
+import { buildInsulinEntry, saveInsulinProtocolToHospitalLocation, savePendingClinicalResult } from '@/lib/hospitalNrsRegistry';
 
 const ProtocoloInsulina = () => {
   const navigate = useNavigate();
@@ -27,6 +27,8 @@ const ProtocoloInsulina = () => {
   const [indexResult, setIndexResult] = useState<Record<string, unknown> | null>(null);
   const [sourceContext, setSourceContext] = useState<Record<string, unknown> | null>(null);
   const [indexMessage, setIndexMessage] = useState('');
+  // Cama y paciente confirmados al guardar, para estamparlos en el resultado impreso.
+  const [recordContext, setRecordContext] = useState<{ name: string; rut: string; servicio: string; cama: string } | null>(null);
   const [patientData, setPatientData] = useState<PatientData>({
     edad: 0,
     peso: 0,
@@ -186,7 +188,7 @@ const ProtocoloInsulina = () => {
               </TabsContent>
               <TabsContent value="4">
                 {indexMessage && <div className={`mb-4 rounded-lg border p-3 text-sm font-semibold print:hidden ${/correctamente/i.test(indexMessage) ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : /pendiente|Guardando/i.test(indexMessage) ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-red-200 bg-red-50 text-red-700'}`}>{indexMessage}</div>}
-                <ResultsStep data={patientData} grupo={grupo} onBack={() => setActiveTab('3')} onReset={handleReset} usoCondicionado={usoCondicionado} onIndexResult={handleIndexResult} indexLabel={sourceContext ? 'Guardar en ficha del paciente' : 'Asociar a cama (opcional)'} />
+                <ResultsStep data={patientData} grupo={grupo} onBack={() => setActiveTab('3')} onReset={handleReset} usoCondicionado={usoCondicionado} onIndexResult={handleIndexResult} indexLabel={sourceContext ? 'Guardar en ficha del paciente' : 'Guardar e imprimir'} recordContext={recordContext} />
               </TabsContent>
             </Tabs>
           </Card>
@@ -222,7 +224,14 @@ const ProtocoloInsulina = () => {
             </Dialog>
           </footer>
         </main>
-        <HospitalLocationIndexDialog open={Boolean(indexResult)} title="Indexar protocolo insulínico" description="La asociación a servicio y cama es opcional." actionLabel="Asociar protocolo" onClose={() => setIndexResult(null)} onSave={(location) => saveInsulinProtocolToHospitalLocation({ ...location, result: indexResult })} />
+        <HospitalLocationIndexDialog
+          open={Boolean(indexResult)}
+          title="Guardar protocolo insulínico"
+          description="Indica la cama y el paciente al que corresponde este protocolo."
+          onClose={() => setIndexResult(null)}
+          onSave={(location) => savePendingClinicalResult({ ...location, tipo: 'insulina', payload: buildInsulinEntry(indexResult as Record<string, unknown>) })}
+          onCompleted={(context) => { setRecordContext(context); setIndexResult(null); window.setTimeout(() => window.print(), 150); }}
+        />
       </div>
     </>
   );

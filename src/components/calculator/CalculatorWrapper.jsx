@@ -35,6 +35,7 @@ export default function CalculatorWrapper({
   requestRecordLocation = false,
   onRecordResult = null,
   embeddedPatientContext = false,
+  defaultMode = 'consultivo',
 }) {
   const [patientInfo, setPatientInfo] = useState({
     name: '',
@@ -47,17 +48,23 @@ export default function CalculatorWrapper({
   const [printTimestamp, setPrintTimestamp] = useState(null);
   const [printError, setPrintError] = useState('');
   // Modo de uso: 'consultivo' (sin datos de paciente) o 'registro' (nombre/RUT obligatorios).
-  const [mode, setMode] = useState('consultivo');
+  const [mode, setMode] = useState(defaultMode);
+  // Identidad y cama capturadas al guardar, para estamparlas en el impreso.
+  const [recordContext, setRecordContext] = useState(null);
 
   const recordsClinicalResult = showPatientInfo && !embeddedPatientContext && mode === 'registro';
   const needsPatient = recordsClinicalResult && !requestRecordLocation;
   const patientValid = !needsPatient || (patientInfo.name.trim() !== '' && patientInfo.rut.trim() !== '');
+  // En registro clínico contra una cama, la identidad se pide en el selector de
+  // cama, así que guardar e imprimir son un solo paso.
+  const savesToBed = recordsClinicalResult && requestRecordLocation && Boolean(onRecordResult);
 
-  const handlePrint = () => {
+  const handlePrint = (context = null) => {
     if (needsPatient && !patientValid) {
       setPrintError('Para registro clínico es obligatorio anotar nombre y RUT del paciente.');
       return;
     }
+    if (context) setRecordContext(context);
     setPrintError('');
     setPrintTimestamp(new Date().toISOString());
     setIsPrintMode(true);
@@ -86,7 +93,8 @@ export default function CalculatorWrapper({
     const calcResult = onCalculate();
     if (calcResult) {
       saveToHistory({ inputs, result: calcResult });
-      if (recordsClinicalResult && onRecordResult) onRecordResult({ inputs, result: calcResult, patientInfo: needsPatient ? patientInfo : null });
+      // Con selector de cama el guardado lo dispara "Guardar e imprimir", no el cálculo.
+      if (recordsClinicalResult && onRecordResult && !savesToBed) onRecordResult({ inputs, result: calcResult, patientInfo: needsPatient ? patientInfo : null });
     }
   };
 
@@ -96,7 +104,7 @@ export default function CalculatorWrapper({
         title={title}
         inputs={inputs}
         result={result}
-        patientInfo={needsPatient ? patientInfo : null}
+        patientInfo={recordContext || (needsPatient ? patientInfo : null)}
         generatedAt={printTimestamp}
       />
     );
@@ -135,7 +143,7 @@ export default function CalculatorWrapper({
           </div>
           <p className="mt-1.5 text-[11px] text-slate-500">
             {mode === 'registro'
-              ? requestRecordLocation ? 'Registro clínico: al guardar se solicitará ubicación, iniciales y edad, sin mostrar datos del ocupante.' : 'Registro clínico: nombre y RUT obligatorios; el resultado se puede imprimir para la ficha.'
+              ? requestRecordLocation ? 'Registro clínico: al guardar e imprimir se pedirá la cama y los datos del paciente, sin mostrar quién está hospitalizado.' : 'Registro clínico: nombre y RUT obligatorios; el resultado se puede imprimir para la ficha.'
               : 'Consultivo: uso rápido sin datos del paciente.'}
           </p>
         </div>
@@ -219,6 +227,16 @@ export default function CalculatorWrapper({
       {/* Calculator Content */}
       {children}
 
+      {recordContext && (
+        <div className="mt-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Resultado guardado en</p>
+          <p className="mt-0.5 font-bold">
+            {[recordContext.servicio, recordContext.cama && `Cama ${recordContext.cama}`].filter(Boolean).join(' · ') || 'Ubicación no consignada'}
+          </p>
+          <p className="text-emerald-800">{recordContext.name}{recordContext.rut ? ` · ${recordContext.rut}` : ''}</p>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex gap-3 mt-6">
         {!(printOnly && result) && (
@@ -229,21 +247,36 @@ export default function CalculatorWrapper({
         )}
         {result && (
           <>
-            {printOnly && recordsClinicalResult && onRecordResult && (
-              <Button type="button" onClick={() => onRecordResult({ inputs, result, patientInfo: needsPatient ? patientInfo : null })} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Guardar en registro hospitalario'} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
-                Guardar en registro
+            {savesToBed ? (
+              // Un solo botón: abre el selector de cama y, al guardar, imprime.
+              <Button
+                type="button"
+                onClick={() => onRecordResult({ inputs, result, patientInfo: needsPatient ? patientInfo : null, print: handlePrint })}
+                title="Guardar el resultado en la cama del paciente e imprimirlo"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800"
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Guardar e imprimir
               </Button>
+            ) : (
+              <>
+                {printOnly && recordsClinicalResult && onRecordResult && (
+                  <Button type="button" onClick={() => onRecordResult({ inputs, result, patientInfo: needsPatient ? patientInfo : null })} disabled={!patientValid} title={!patientValid ? 'Anota nombre y RUT para guardar el resultado clínico' : 'Guardar en registro hospitalario'} className="flex-1 bg-emerald-700 hover:bg-emerald-800">
+                    Guardar en registro
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => handlePrint()}
+                  disabled={!patientValid}
+                  title={!patientValid ? 'Para imprimir hay que anotar nombre y RUT del paciente' : 'Imprimir resultado'}
+                  className={`${printOnly ? 'flex-1' : ''} ${!patientValid ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Imprimir
+                </Button>
+              </>
             )}
-            <Button
-              variant="outline"
-              onClick={handlePrint}
-              disabled={!patientValid}
-              title={!patientValid ? 'Para imprimir hay que anotar nombre y RUT del paciente' : 'Imprimir resultado'}
-              className={`${printOnly ? 'flex-1' : ''} ${!patientValid ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimir
-            </Button>
             <Button variant="outline" onClick={onReset}>
               <RotateCcw className="h-4 w-4" />
             </Button>

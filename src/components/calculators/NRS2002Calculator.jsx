@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calculator, AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import CalculatorWrapper from '../calculator/CalculatorWrapper';
 import HospitalLocationIndexDialog from '@/components/hospitalizados/HospitalLocationIndexDialog';
-import { saveNrsResultToHospitalLocation } from '@/lib/hospitalNrsRegistry';
+import { nrsEvaluation, savePendingClinicalResult } from '@/lib/hospitalNrsRegistry';
 
 // Justificaciones de muy alto riesgo por indicación médica (protocolo local HCSFB).
 // Si el clínico marca al menos una, el paciente se categoriza como muy alto riesgo
@@ -395,6 +395,7 @@ export default function NRS2002Calculator({ onApplyResult }) {
       requestRecordLocation
       onRecordResult={requestHospitalIndex}
       embeddedPatientContext={Boolean(onApplyResult)}
+      defaultMode="registro"
     >
 
       <div className="space-y-6">
@@ -954,7 +955,14 @@ export default function NRS2002Calculator({ onApplyResult }) {
         )}
       </div>
     </CalculatorWrapper>
-    <HospitalLocationIndexDialog open={Boolean(registryPrompt)} title="Indexar resultado NRS-2002" description="Selecciona una ubicación y confirma la identidad mínima." onClose={() => setRegistryPrompt(null)} onSave={(location) => saveNrsResultToHospitalLocation({ ...location, patientInfo: registryPrompt?.patientInfo, result: registryPrompt?.result, inputs: registryPrompt?.inputs })} />
+    <HospitalLocationIndexDialog
+      open={Boolean(registryPrompt)}
+      title="Guardar tamizaje NRS-2002"
+      description="Indica la cama y el paciente al que corresponde este resultado."
+      onClose={() => setRegistryPrompt(null)}
+      onSave={(location) => savePendingClinicalResult({ ...location, tipo: 'nrs2002', payload: nrsEvaluation(registryPrompt?.result, registryPrompt?.inputs) })}
+      onCompleted={(context) => registryPrompt?.print?.(context)}
+    />
   </>
   );
 }

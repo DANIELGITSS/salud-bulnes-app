@@ -17,6 +17,7 @@ interface ResultsStepProps {
   usoCondicionado?: boolean;
   onIndexResult?: (result: Record<string, unknown>) => void;
   indexLabel?: string;
+  recordContext?: { name: string; rut: string; servicio: string; cama: string } | null;
 }
 
 const groupInfo = {
@@ -40,7 +41,7 @@ const groupInfo = {
   },
 };
 
-export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onIndexResult, indexLabel = 'Asociar a cama (opcional)' }: ResultsStepProps) {
+export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onIndexResult, indexLabel = 'Guardar e imprimir', recordContext = null }: ResultsStepProps) {
   const [corticoideOverride, setCorticoideOverride] = useState<'resistente' | 'sensible' | null>(null);
 
   const mostrarAlertaCorticoide = grupo === 'sensible' && data.corticoidesSistemicos;
@@ -70,6 +71,14 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
 
   return (
     <div className="space-y-6">
+      {recordContext && (
+        <div className="print:hidden rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Protocolo guardado en</p>
+          <p className="mt-0.5 font-bold">{[recordContext.cama && `Cama ${recordContext.cama}`, recordContext.servicio].filter(Boolean).join(' · ')}</p>
+          <p className="text-emerald-800">{recordContext.name}{recordContext.rut ? ` · ${recordContext.rut}` : ''}</p>
+        </div>
+      )}
+
       {/* Botón de impresión - solo visible en pantalla */}
       <div className="print:hidden flex flex-wrap justify-end gap-2">
         {onIndexResult && <Button onClick={() => onIndexResult({ grupo: grupoEfectivo, clasificacion: info.title, pesoKg: data.peso, glicemiaIngreso: data.glicemiaIngreso, recomendaciones: recommendations, usoCondicionado: Boolean(usoCondicionado), datos: data })} variant="outline" className="gap-2 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
@@ -92,11 +101,11 @@ export function ResultsStep({ data, grupo, onBack, onReset, usoCondicionado, onI
         <div className="space-y-4 text-sm">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <p><strong>Nombre paciente:</strong> ___________________________</p>
-              <p><strong>RUT:</strong> ___________________________</p>
+              <p><strong>Nombre paciente:</strong> {recordContext?.name || '___________________________'}</p>
+              <p><strong>RUT:</strong> {recordContext?.rut || '___________________________'}</p>
             </div>
             <div className="space-y-1">
-              <p><strong>N° cama / Servicio:</strong> ___________________________</p>
+              <p><strong>N° cama / Servicio:</strong> {recordContext ? [recordContext.cama, recordContext.servicio].filter(Boolean).join(' · ') : '___________________________'}</p>
               <p><strong>Fecha de emisión:</strong> {fechaEmision} - {horaEmision} h</p>
             </div>
           </div>
