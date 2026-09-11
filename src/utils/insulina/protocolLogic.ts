@@ -98,8 +98,15 @@ function checkResistenteCriteria(data: PatientData): ClassificationCriteria {
 const BASAL_INICIO_UKG: Record<PatientGroup, number> = { sensible: 0.1, intermedio: 0.15, resistente: 0.25 };
 
 // Sobre 0,5 U/kg/día de basal, seguir titulando aumenta la hipoglicemia sin
-// mejorar el control: ahí corresponde agregar prandial, no más NPH.
+// mejorar el control: ahí corresponde agregar prandial, no más NPH. Coincide
+// con el corte del protocolo, que clasifica la NPH previa >0,5 U/kg como
+// criterio mayor de insulinorresistencia.
 export const BASAL_TOPE_UKG = 0.5;
+
+// Umbral del protocolo para comunicar al médico ("Correcciones >0.2 U/kg",
+// p. ej. 16 UI en un paciente de 80 kg). Es también el gatillo natural para
+// revisar la basal: si la corrección llega ahí, la basal está corta.
+export const CORRECCION_AVISO_UKG = 0.2;
 
 const redondearPar = (valor: number) => Math.round(valor / 2) * 2;
 
@@ -117,7 +124,7 @@ export function getDoseRecommendations(grupo: PatientGroup, peso: number, basalU
     ? 'No subir más la NPH: agregar prandial'
     : conBasal
       ? 'Subir NPH 10-20% sólo si el ayuno sigue alto'
-      : `2 glicemias >180 en 24 h: iniciar NPH ${inicio.toString().replace('.', ',')} U/kg/día`;
+      : `Si persiste, valorar iniciar NPH ${inicio.toString().replace('.', ',')} U/kg/día`;
 
   const sostenida = topeAlcanzado
     ? 'Revisar prandial, nutrición y corticoides antes de tocar la NPH'
@@ -140,7 +147,7 @@ export function getDoseRecommendations(grupo: PatientGroup, peso: number, basalU
       return [
         { glucoseRange: '140-179', dose: redondearPar(peso * 0.03), comment: 'Corrección aislada: no ajustar basal por un valor', ukgRange: '0.03 U/kg' },
         { glucoseRange: '180-219', dose: redondearPar(peso * 0.06), comment: decision, ukgRange: '0.06 U/kg' },
-        { glucoseRange: '220-249', dose: redondearPar(peso * 0.06), comment: conBasal ? 'Titular por glicemia de ayuno, cada 24-48 h' : 'Iniciar basal si ya hubo otro valor >180 hoy', ukgRange: '0.06 U/kg' },
+        { glucoseRange: '220-249', dose: redondearPar(peso * 0.06), comment: conBasal ? 'Titular por glicemia de ayuno, cada 24-48 h' : 'Valorar basal si ya hubo otro valor sobre rango hoy', ukgRange: '0.06 U/kg' },
         { glucoseRange: '250-299', dose: redondearPar(peso * 0.09), comment: sostenida, ukgRange: '0.09 U/kg' },
         { glucoseRange: '300-349', dose: redondearPar(peso * 0.11), comment: 'Avisar al médico: revisar nutrición, corticoides y adherencia', ukgRange: '0.11 U/kg' },
         { glucoseRange: '≥ 350', dose: redondearPar(peso * 0.14), comment: 'Avisar al médico: cetonemia y eventual insulina IV', ukgRange: '0.14 U/kg' },
@@ -150,7 +157,7 @@ export function getDoseRecommendations(grupo: PatientGroup, peso: number, basalU
       return [
         { glucoseRange: '140-179', dose: redondearPar(peso * 0.06), comment: 'Corrección aislada: no ajustar basal por un valor', ukgRange: '0.06 U/kg' },
         { glucoseRange: '180-219', dose: redondearPar(peso * 0.09), comment: decision, ukgRange: '0.09 U/kg' },
-        { glucoseRange: '220-249', dose: redondearPar(peso * 0.11), comment: conBasal ? 'Titular por glicemia de ayuno, cada 24-48 h' : 'Iniciar basal si ya hubo otro valor >180 hoy', ukgRange: '0.11 U/kg' },
+        { glucoseRange: '220-249', dose: redondearPar(peso * 0.11), comment: conBasal ? 'Titular por glicemia de ayuno, cada 24-48 h' : 'Valorar basal si ya hubo otro valor sobre rango hoy', ukgRange: '0.11 U/kg' },
         { glucoseRange: '250-299', dose: redondearPar(peso * 0.14), comment: sostenida, ukgRange: '0.14 U/kg' },
         { glucoseRange: '300-349', dose: redondearPar(peso * 0.17), comment: 'Avisar al médico: revisar corticoides, infección y nutrición', ukgRange: '0.17 U/kg' },
         { glucoseRange: '≥ 350', dose: redondearPar(peso * 0.20), comment: 'Avisar al médico: cetonemia y eventual insulina IV', ukgRange: '0.20 U/kg' },
@@ -182,13 +189,19 @@ export function getBasalGuidance(data: PatientData, grupo: PatientGroup): BasalG
   const basalUkg = data.usoPrevioNPH > 0 ? data.usoPrevioNPH : 0;
   const basalU = peso > 0 && basalUkg > 0 ? Math.round(basalUkg * peso) : null;
   const topeU = peso > 0 ? Math.round(BASAL_TOPE_UKG * peso) : null;
+  const avisoU = peso > 0 ? Math.round(CORRECCION_AVISO_UKG * peso) : null;
   const renalFragil = (data.vfg > 0 && data.vfg < 30) || data.hepatopatia;
 
   let sugeridaUkg = BASAL_INICIO_UKG[grupo];
   if (renalFragil) sugeridaUkg = Math.round(sugeridaUkg * 0.75 * 100) / 100;
   const sugeridaU = peso > 0 ? redondearPar(sugeridaUkg * peso) : null;
 
-  const alertas: string[] = [];
+  // Gatillos de aviso al médico definidos por el protocolo local.
+  const alertas: string[] = [
+    avisoU
+      ? `Comunicar al médico: hiperglicemia persistente, glicemia >350 mg/dL, corrección sobre ${CORRECCION_AVISO_UKG.toString().replace('.', ',')} U/kg (≈ ${avisoU} U) o hipoglicemia sintomática.`
+      : 'Comunicar al médico: hiperglicemia persistente, glicemia >350 mg/dL, corrección sobre 0,2 U/kg o hipoglicemia sintomática.',
+  ];
   if (renalFragil) alertas.push('VFG <30 ml/min o hepatopatía: la basal va reducida ~25% y la corrección se espacia.');
   if (data.corticoidesSistemicos) alertas.push('Corticoides sistémicos: la hiperglicemia es vespertina. Cargar la NPH en la mañana y bajarla cuando se reduzca el corticoide.');
   if (data.edad > 75) alertas.push('Mayor de 75 años: meta 140-180 mg/dL; no perseguir normoglicemia.');
@@ -231,6 +244,9 @@ export function getBasalGuidance(data: PatientData, grupo: PatientGroup): BasalG
       topeU,
       cuando: [
         'Subir la NPH sólo si la glicemia de ayuno se mantiene sobre 140 mg/dL en dos días seguidos, sin hipoglicemia nocturna.',
+        avisoU
+          ? `Si la corrección supera ${CORRECCION_AVISO_UKG.toString().replace('.', ',')} U/kg (≈ ${avisoU} U), avisar al médico: la basal quedó corta.`
+          : `Si la corrección supera ${CORRECCION_AVISO_UKG.toString().replace('.', ',')} U/kg, avisar al médico: la basal quedó corta.`,
         'No subir la basal para corregir hiperglicemia post-prandial o vespertina: eso se maneja con prandial o con el aporte de alimentación.',
       ],
       titulacion: [
@@ -252,8 +268,11 @@ export function getBasalGuidance(data: PatientData, grupo: PatientGroup): BasalG
     sugeridaU,
     topeU,
     cuando: [
-      'Dos glicemias sobre 180 mg/dL en 24 h pese a la corrección.',
-      'Necesidad de corrección 3 o más veces al día, o más de 20 U de corrección en 24 h.',
+      'Hiperglicemias persistentes sobre el rango de la tabla, pese a la corrección.',
+      avisoU
+        ? `Correcciones sobre ${CORRECCION_AVISO_UKG.toString().replace('.', ',')} U/kg (≈ ${avisoU} U en este paciente): la basal está corta.`
+        : `Correcciones sobre ${CORRECCION_AVISO_UKG.toString().replace('.', ',')} U/kg: la basal está corta.`,
+      'Necesidad de corrección en 3 o más controles preprandiales del día.',
       'Paciente que ya usaba insulina en su casa: reanudar la basal desde el ingreso, no esperar.',
       'Inicio de corticoides sistémicos o de nutrición enteral o parenteral.',
     ],
@@ -263,7 +282,7 @@ export function getBasalGuidance(data: PatientData, grupo: PatientGroup): BasalG
       'Reevaluar y titular a las 24-48 h según la glicemia de ayuno.',
       `No pasar de ${String(BASAL_TOPE_UKG).replace('.', ',')} U/kg/día${topeU ? ` (≈ ${topeU} U/día)` : ''} sin sumar prandial.`,
     ],
-    alertas: alertas.length ? alertas : ['Mantener la corrección mientras se ajusta la basal, no como tratamiento único.'],
+    alertas: ['Mantener la corrección mientras se ajusta la basal, no como tratamiento único.', ...alertas],
   };
 }
 
