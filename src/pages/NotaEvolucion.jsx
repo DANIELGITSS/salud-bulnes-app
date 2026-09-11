@@ -14,6 +14,11 @@ import { PROA_BED_MAP } from '@/lib/hospitalSuggestions';
 import { fetchProaRecords, getLatestProaForm, readProaRegistry, saveProaRecord } from '@/lib/proaRegistry';
 import FirmaDigital from '@/components/ges/FirmaDigital';
 
+// Compara RUT ignorando puntos, guion y mayúsculas del dígito verificador.
+function rutKey(value) {
+  return String(value || '').replace(/[^0-9kK]/g, '').toUpperCase();
+}
+
 function nowForInput() {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -62,11 +67,15 @@ export default function NotaEvolucion() {
   const [bedRecords, setBedRecords] = useState(() => readProaRegistry());
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [fromVistaGeneral, setFromVistaGeneral] = useState(false);
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   useEffect(() => {
     const prefill = getMultiPrefill();
     if (!prefill) return;
+    // Abierta desde Vista General: el paciente ya está confirmado en pantalla,
+    // así que aquí sí corresponde traer sus datos.
+    setFromVistaGeneral(true);
     setForm(prev => ({
       ...prev,
       pacienteNombre: prefill.patient_name || prev.pacienteNombre,
@@ -87,22 +96,24 @@ export default function NotaEvolucion() {
   }, []);
 
   useEffect(() => {
-    if (!form.cama) return;
+    // Sólo se rellena desde Vista General. Elegir una cama en el selector no
+    // debe revelar quién está hospitalizado en ella.
+    if (!fromVistaGeneral || !form.cama) return;
     const current = bedRecords.find(item => item.bedCode === (form.recordBedCode || form.cama));
     const patient = getLatestProaForm(current);
     if (!patient) return;
     setForm(prev => ({ ...prev, pacienteNombre: prev.pacienteNombre || patient.paciente || '', pacienteRut: prev.pacienteRut || formatRut(patient.rut || ''), diagnostico: prev.diagnostico || patient.diagnostico_principal || patient.diagnostico_actual || '' }));
-  }, [bedRecords, form.cama, form.recordBedCode]);
+  }, [fromVistaGeneral, bedRecords, form.cama, form.recordBedCode]);
 
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
     else navigate(createPageUrl('Home'));
   };
 
+  // Elegir la cama no arrastra identidad ni diagnóstico: el profesional escribe
+  // los datos del paciente que evaluó y al guardar se contrastan con el registro.
   const chooseBed = (servicio, cama) => {
-    const record = bedRecords.find(item => item.bedCode === cama);
-    const patient = getLatestProaForm(record) || {};
-    setForm(prev => ({ ...prev, servicio, cama, recordBedCode: cama, pacienteNombre: patient.paciente || prev.pacienteNombre, pacienteRut: patient.rut ? formatRut(patient.rut) : prev.pacienteRut, diagnostico: patient.diagnostico_principal || patient.diagnostico_actual || prev.diagnostico }));
+    setForm(prev => ({ ...prev, servicio, cama, recordBedCode: cama }));
     setShowBedSelector(false);
   };
 
@@ -112,13 +123,21 @@ export default function NotaEvolucion() {
     setShowBedSelector(true);
   };
 
-  const occupiedBeds = new Set(bedRecords.map(record => record.bedCode));
-
   const saveEvolution = async () => {
     const record = bedRecords.find(item => item.bedCode === (form.recordBedCode || form.cama));
-    if (!record) { setSaveMessage('No se encontró un paciente hospitalizado en esta cama.'); return; }
+    if (!record) { setSaveMessage('No fue posible asociar la nota a esa cama. Verifica la cama seleccionada.'); return; }
     if (![form.anamnesis, form.examenFisico, form.indicaciones].some(value => value.trim())) { setSaveMessage('Completa al menos una sección clínica antes de guardar.'); return; }
     const latest = getLatestProaForm(record) || {};
+    if (!fromVistaGeneral) {
+      if (!form.pacienteNombre.trim() || !form.pacienteRut.trim()) { setSaveMessage('Anota el nombre y el RUT del paciente que evaluaste antes de guardar.'); return; }
+      // Contraste al guardar: avisa del desajuste sin decir quién ocupa la cama.
+      const rutRegistro = rutKey(latest.rut);
+      const rutEscrito = rutKey(form.pacienteRut);
+      if (rutRegistro && rutEscrito && rutRegistro !== rutEscrito) {
+        setSaveMessage('Los datos no coinciden con el registro de esa cama. Verifica la cama y el RUT antes de guardar.');
+        return;
+      }
+    }
     const narrative = [form.diagnostico && `DIAGNÓSTICO(S):\n${form.diagnostico.trim()}`, form.anamnesis && `ANAMNESIS:\n${form.anamnesis.trim()}`, form.examenFisico && `EXAMEN FÍSICO:\n${form.examenFisico.trim()}`, form.indicaciones && `INDICACIONES:\n${form.indicaciones.trim()}`].filter(Boolean).join('\n\n');
     const currentState = [form.anamnesis && `Anamnesis / evolución: ${form.anamnesis.trim()}`, form.examenFisico && `Examen físico: ${form.examenFisico.trim()}`].filter(Boolean).join('\n');
     const existingPlans = String(latest.vista_planes_pendientes || '').trim();
@@ -156,28 +175,24 @@ export default function NotaEvolucion() {
               <Bed className="h-5 w-5 text-slate-700" /> Seleccionar cama para evolucionar
             </DialogTitle>
             <DialogDescription>
-              Elige primero el servicio y la cama. Ambos datos quedarán registrados en la nota de evolución.
+              Elige el servicio y la cama. Después anota el nombre y el RUT del paciente que evaluaste: quedarán registrados en la nota.
             </DialogDescription>
           </DialogHeader>
 
           <Tabs value={selectedService} onValueChange={setSelectedService} className="space-y-4">
             <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-slate-100 p-1.5">
-              {PROA_BED_MAP.map(service => {
-                const beds = service.groups.flatMap(group => group.beds);
-                const occupied = beds.filter(bed => occupiedBeds.has(bed)).length;
-                return (
-                  <TabsTrigger
-                    key={service.servicio}
-                    value={service.servicio}
-                    className="gap-2 rounded-lg px-3 py-2 data-[state=active]:bg-white data-[state=active]:text-teal-800"
-                  >
-                    {service.servicio}
-                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-600">
-                      {occupied}/{beds.length}
-                    </span>
-                  </TabsTrigger>
-                );
-              })}
+              {PROA_BED_MAP.map(service => (
+                <TabsTrigger
+                  key={service.servicio}
+                  value={service.servicio}
+                  className="gap-2 rounded-lg px-3 py-2 data-[state=active]:bg-white data-[state=active]:text-teal-800"
+                >
+                  {service.servicio}
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+                    {service.groups.reduce((total, group) => total + group.beds.length, 0)}
+                  </span>
+                </TabsTrigger>
+              ))}
             </TabsList>
 
             {PROA_BED_MAP.map(service => (
@@ -194,29 +209,16 @@ export default function NotaEvolucion() {
                       <section key={`${service.servicio}-${group.label}`}>
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{group.label}</p>
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                          {group.beds.map(bed => {
-                            const occupied = occupiedBeds.has(bed);
-                            return (
-                              <button
-                                key={bed}
-                                type="button"
-                                onClick={() => chooseBed(service.servicio, bed)}
-                                className={`min-h-[62px] rounded-xl border px-3 py-2 text-left transition ${
-                                  occupied
-                                    ? 'border-emerald-200 bg-emerald-50 hover:border-emerald-300'
-                                    : 'border-slate-200 bg-white hover:border-teal-200 hover:bg-teal-50/40'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="block text-base font-bold text-slate-900">{bed}</span>
-                                  {occupied && <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Ocupada</span>}
-                                </div>
-                                <span className={`mt-1 block text-xs ${occupied ? 'font-semibold text-emerald-800' : 'text-slate-400'}`}>
-                                  {occupied ? 'Con registro' : 'Libre'}
-                                </span>
-                              </button>
-                            );
-                          })}
+                          {group.beds.map(bed => (
+                            <button
+                              key={bed}
+                              type="button"
+                              onClick={() => chooseBed(service.servicio, bed)}
+                              className="min-h-[48px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-teal-300 hover:bg-teal-50/40"
+                            >
+                              <span className="block text-base font-bold text-slate-900">{bed}</span>
+                            </button>
+                          ))}
                         </div>
                       </section>
                     ))}
