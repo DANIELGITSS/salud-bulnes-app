@@ -1,5 +1,24 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+
+// El impreso se cuelga directamente del body: así la regla de impresión puede
+// descolgar el resto de la app (incluidos diálogos abiertos) sin ocultarse a sí
+// mismo por estar anidado dentro de ella.
+function usePrintHost() {
+  const [host] = useState(() => {
+    if (typeof document === 'undefined') return null;
+    const element = document.createElement('div');
+    element.setAttribute('data-print-root', '');
+    return element;
+  });
+  useEffect(() => {
+    if (!host) return undefined;
+    document.body.appendChild(host);
+    return () => { document.body.removeChild(host); };
+  }, [host]);
+  return host;
+}
 
 // Extrae el "Plazo: ..." del texto de interpretación para destacarlo como
 // banner. Maneja variantes: "Plazo: 48-72 horas hábiles", "Plazo: 5-7 días",
@@ -30,6 +49,7 @@ const TONE_CLASSES = {
 };
 
 export default function PrintableResult({ title, inputs, result, patientInfo, generatedAt }) {
+  const host = usePrintHost();
   const printDate = new Date(generatedAt || Date.now()).toLocaleString('es-CL', {
     year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
   });
@@ -54,17 +74,22 @@ export default function PrintableResult({ title, inputs, result, patientInfo, ge
     ? result.interpretation.replace(/Plazo:\s*[^.]+\.?/i, '').trim()
     : '';
 
-  return (
+  if (!host) return null;
+
+  return createPortal(
     <>
       <style>{`
         @page { size: A4 portrait; margin: 10mm 12mm; }
         @media print {
           /* Reset del padding global del body para no duplicar márgenes con @page */
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-          body * { visibility: hidden; }
-          #printable-result, #printable-result * { visibility: visible; }
+          /* Se descuelga el resto de la app en vez de sólo ocultarla: con
+             visibility seguía ocupando espacio y salían hojas en blanco (o con
+             los diálogos abiertos) después del resultado. */
+          body > *:not([data-print-root]) { display: none !important; }
+          [data-print-root] { display: block !important; }
           #printable-result {
-            position: absolute; left: 0; top: 0; right: 0;
+            position: static;
             width: 100%;
             padding: 0;
             font-size: 10.5pt;
@@ -180,6 +205,7 @@ export default function PrintableResult({ title, inputs, result, patientInfo, ge
           Documento generado automáticamente por la app de Guía Clínica HCSFB · {printDate}
         </p>
       </div>
-    </>
+    </>,
+    host,
   );
 }

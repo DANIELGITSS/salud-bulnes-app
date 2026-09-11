@@ -961,7 +961,12 @@ export default function NRS2002Calculator({ onApplyResult }) {
       description="Indica la cama y el paciente al que corresponde este resultado."
       onClose={() => setRegistryPrompt(null)}
       onSave={(location) => savePendingClinicalResult({ ...location, tipo: 'nrs2002', payload: nrsEvaluation(registryPrompt?.result, registryPrompt?.inputs) })}
-      onCompleted={(context) => registryPrompt?.print?.(context)}
+      onCompleted={(context) => {
+        // Se cierra el diálogo antes de imprimir: si queda abierto, entra en la hoja.
+        const print = registryPrompt?.print;
+        setRegistryPrompt(null);
+        window.setTimeout(() => print?.(context), 60);
+      }}
     />
   </>
   );

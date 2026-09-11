@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BedDouble, ShieldCheck } from 'lucide-react';
+import { BedDouble } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { loadNrsHospitalLocations } from '@/lib/hospitalNrsRegistry';
@@ -84,11 +84,6 @@ export default function HospitalLocationIndexDialog({
         </header>
 
         <div className="space-y-4 p-5">
-          <div className="flex gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>El listado de camas no muestra quién está hospitalizado. Anota el nombre y el RUT del paciente que evaluaste: el médico tratante confirmará la identidad al incorporar el resultado a la ficha.</p>
-          </div>
-
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs font-bold text-slate-700">Servicio</Label>
